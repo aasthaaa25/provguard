@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ProvGuard — submission brief and frontend brief</title>
+<style>
+  @page { size: A4; margin: 16mm 16mm 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    color: #1c1917;
+    font-family: "Segoe UI", Calibri, sans-serif;
+    font-size: 11pt;
+    line-height: 1.45;
+  }
+  h1 { font-size: 22pt; line-height: 1.15; margin: 0 0 4px; letter-spacing: -0.02em; }
+  h2 { font-size: 14pt; margin: 22px 0 8px; padding-top: 8px; border-top: 1.5px solid #1c1917; page-break-after: avoid; }
+  h3 { font-size: 12pt; margin: 14px 0 4px; page-break-after: avoid; }
+  p { margin: 0 0 8px; }
+  ul, ol { margin: 4px 0 10px; padding-left: 18px; }
+  li { margin: 0 0 4px; }
+  .kicker { font-size: 9.5pt; letter-spacing: 0.12em; text-transform: uppercase; color: #57534e; margin-bottom: 6px; }
+  .lead { font-size: 12pt; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 12px; font-size: 10pt; page-break-inside: avoid; }
+  th, td { border: 1px solid #d6d3d1; padding: 5px 7px; text-align: left; vertical-align: top; }
+  th { background: #f5f5f4; font-weight: 650; }
+  code, pre { font-family: Consolas, "Cascadia Mono", monospace; font-size: 9pt; }
+  pre {
+    background: #f5f5f4;
+    border: 1px solid #e7e5e4;
+    padding: 8px 10px;
+    white-space: pre-wrap;
+    page-break-inside: avoid;
+  }
+  .note { border-left: 3px solid #1c1917; padding: 6px 10px; margin: 8px 0 12px; background: #fafaf9; }
+  .ask { background: #fafaf9; border: 1px solid #d6d3d1; padding: 10px 12px; page-break-inside: avoid; }
+</style>
+</head>
+<body>
+
+<p class="kicker">ProvGuard · academic project brief</p>
+<h1>What we built, how to show it to sir, and what the frontend should do</h1>
+<p class="lead">ProvGuard is a Java agent. It watches three risky Java methods while a program is running, writes a safe log, and can stop only a high-confidence rule match. The frontend does not exist yet. It should display that log. It should not reimplement the agent.</p>
+
+<h2>1. The problem we solved</h2>
+<p>A Java program can start an operating-system process or load a class during deserialization. Those calls are a common step in command injection and unsafe deserialization. ProvGuard answers one practical question: when one of those methods is called, which method path reached it, how risky does that path look, and should the call be allowed to continue?</p>
+<p>The agent records a call-path trace with <code>StackWalker</code>. That is the stack of Java methods that led to the call. It is not a provenance graph, and it is not taint tracking. The argument is not stored in full. The log keeps a SHA-256 hash, the length, and a short redacted preview.</p>
+<p>Scoring has two parts. Deterministic rules look for command keywords, reflection, repeated calls, and a deserialization denylist. A Java Isolation Forest adds an anomaly score from call-path features. Monitor and Alert modes never stop the program. Block mode throws <code>ProvGuardBlockedException</code> only when the rule score is at least 80, or when the rule score is 60–79 and the model score is also at least 80. A high model score by itself never blocks. If the agent, the log, or the model fails, the target program continues.</p>
+
+<h2>2. Exactly what is already done</h2>
+<p>The implementation is Java 21, built with Maven, and verified with <code>mvn verify</code> on JDK 26. The requirement document mentioned Python for training. This version trains and scores the Isolation Forest in Java, because the team asked for a Java-only project.</p>
+<table>
+  <tr><th>Piece</th><th>Where it lives</th><th>What it does</th></tr>
+  <tr><td>Agent</td><td><code>provguard-agent</code></td><td><code>premain</code>, Byte Buddy hooks, fast path on the application thread</td></tr>
+  <tr><td>Three sinks</td><td>advice classes</td><td>All <code>Runtime.exec</code> overloads, <code>ProcessBuilder.start</code>, <code>ObjectInputStream.resolveClass</code></td></tr>
+  <tr><td>Rules and modes</td><td><code>provguard-rules</code></td><td>Monitor, Alert, Block. Fail-open. Recursion guard.</td></tr>
+  <tr><td>Log</td><td><code>provguard-storage</code></td><td>Bounded queue, one background worker, <code>events.jsonl</code></td></tr>
+  <tr><td>Model</td><td><code>provguard-ml</code></td><td>Java Isolation Forest packaged inside the agent</td></tr>
+  <tr><td>Demos</td><td><code>provguard-demo-app</code></td><td>Safe echo, suspicious echo, denylist deserialization class</td></tr>
+  <tr><td>Tests</td><td>unit tests and <code>provguard-it</code></td><td>Second JVM started with <code>-javaagent</code></td></tr>
+  <tr><td>Docs</td><td><code>docs/</code> and <code>README.md</code></td><td>Architecture, class, and sequence diagrams; test map; viva notes</td></tr>
+</table>
+<p>Measured on this machine: startup 147.5 ms without the agent and 2059.3 ms with it, because the agent installs its hooks. An allowed echo call went from 87.3 ms to 98.8 ms, about 13%. On the held-out dataset, mean suspicious score 94.0, mean held-out benign score 51.7, recall at 80 is 1.00, false-positive rate at 80 is 0.13. Say these numbers as measurements. Do not say the overhead is low, and do not say the model catches every attack.</p>
+<div class="note">
+  <strong>Not in this version, and do not claim them:</strong> JNDI coverage, a dashboard, ONNX, dynamic attach, taint tracking, a provenance graph, Log4Shell coverage, exploit payloads, a slide deck, and a demo video. The dashboard is the frontend teammate’s job.
+</div>
+
+<h2>3. How to show this to sir</h2>
+<p>Give him the project folder, or a GitHub link after the team pushes it. The code is complete locally and has not been pushed yet. Open the README, then run the three demos live. After each run, open <code>events.jsonl</code> in the project root.</p>
+<pre>mvn verify
+
+.\scripts\run-demo.ps1 -Mode MONITOR -Demo safe
+.\scripts\run-demo.ps1 -Mode ALERT -Demo suspicious
+.\scripts\run-demo.ps1 -Mode BLOCK -Demo blocked</pre>
+<table>
+  <tr><th>Demo</th><th>What sir should see</th></tr>
+  <tr><td>Safe, Monitor</td><td>The program finishes. The log has <code>PROCESS_BUILDER_START</code>, <code>RUNTIME_EXEC</code>, and <code>DESERIALIZATION_RESOLVE_CLASS</code>. The raw command text is not stored. <code>modelStatus</code> is <code>AVAILABLE</code>.</td></tr>
+  <tr><td>Suspicious, Alert</td><td>The echo still runs. The log is an alert because the argument text contains command keywords. Nothing is blocked.</td></tr>
+  <tr><td>Denylist, Block</td><td>Deserialization of <code>BlockedDemoObject</code> is denied. The log has <code>enforced: true</code> and <code>UNSAFE_DESERIALIZATION_CLASS</code>. The object has no dangerous <code>readObject</code>.</td></tr>
+</table>
+<p>Two-minute explanation, also written in <code>docs/viva-notes.md</code>: ProvGuard instruments process execution and deserialization class resolution. On each call it captures the stack, stores a hash and a redacted preview, scores known patterns with rules, and adds an Isolation Forest score. Only a confirmed rule match can stop the call, and only in Block mode.</p>
+<p>Files to leave open: <code>README.md</code>, <code>docs/architecture.md</code>, <code>docs/class-diagram.md</code>, <code>docs/sequence-diagram.md</code>, <code>docs/limitations.md</code>, <code>reports/ml-evaluation.md</code>, <code>reports/performance-results.md</code>.</p>
+<p>If the college also wants slides, use this order: problem, three sinks, call-path trace, safe metadata, rules and the block policy, Java Isolation Forest, three live demos, measured numbers, honest limits. A video can be a screen recording of the three commands above. Those two files are the only submission pieces still missing.</p>
+
+<h2>4. What to ask your teammate to do now</h2>
+<div class="ask">
+<p>Send her this PDF and the repository. Ask her to build a read-only web frontend that loads <code>events.jsonl</code> and explains the three demos. She should not change the agent, the rules, or the model. She should not add a way to run commands from the browser.</p>
+</div>
+<p>Say this to her:</p>
+<p>“The Java agent is finished. Please build the presentation frontend. It reads the JSONL file the agent already writes. Each line is one monitored call. Show the call path, the rule score, the model score, the decision, and whether the block was actually enforced. Include a page that walks a viewer through the safe demo, the alert demo, and the block demo. Do not store or display a full command. The log only has a hash, a length, and a 20-character redacted preview. Do not call the stack a provenance graph. Do not let the model score look like it can block by itself.”</p>
+
+<h3>Screens to build</h3>
+<ol>
+  <li><strong>Home.</strong> One sentence on the problem, the three monitored methods, and the three modes. A button to load <code>events.jsonl</code> from disk.</li>
+  <li><strong>Run summary.</strong> Counts of allowed, alerted, and blocked events. Show <code>modelStatus</code>. If it is <code>ML_UNAVAILABLE</code>, say the rules decided.</li>
+  <li><strong>Event table.</strong> Time, sink, path signature, rule score, ML score, decision, enforced. Filters for sink and decision.</li>
+  <li><strong>Event detail.</strong> The call frames from outermost application method to the sink. Matched rule names. The explanation string. Hash, length, and redacted preview. Requested class name for deserialization.</li>
+  <li><strong>Demo guide.</strong> Three cards: Monitor plus safe echo, Alert plus suspicious echo, Block plus <code>BlockedDemoObject</code>. Each card says what the viewer should see in the log.</li>
+  <li><strong>Limits.</strong> Short text from <code>docs/limitations.md</code> so the UI does not overclaim.</li>
+</ol>
+
+<h3>Data she should use</h3>
+<p>The agent appends one JSON object per line to <code>events.jsonl</code>. Sample runs are already in <code>reports/output/</code>. She can develop against those files before she runs Java. Important fields:</p>
+<table>
+  <tr><th>Field</th><th>Use it for</th></tr>
+  <tr><td><code>sinkType</code></td><td><code>RUNTIME_EXEC</code>, <code>PROCESS_BUILDER_START</code>, or <code>DESERIALIZATION_RESOLVE_CLASS</code></td></tr>
+  <tr><td><code>pathSignature</code></td><td>The call path, for example <code>SafeDemoApplication&gt;Runtime.exec</code></td></tr>
+  <tr><td><code>callFrames</code></td><td>Class, method, and line for the detail view</td></tr>
+  <tr><td><code>argumentHash</code>, <code>argumentLength</code>, <code>redactedArgumentPreview</code></td><td>The only argument display. Never invent the original command.</td></tr>
+  <tr><td><code>requestedClassName</code></td><td>The class seen during deserialization</td></tr>
+  <tr><td><code>ruleScore</code>, <code>mlScore</code>, <code>finalScore</code></td><td>Scores from 0 to 100. <code>mlScore</code> may be null.</td></tr>
+  <tr><td><code>decision</code>, <code>enforced</code>, <code>mode</code></td><td><code>ALLOW</code>, <code>ALERT</code>, or <code>BLOCK</code>. <code>enforced: true</code> means the call was actually stopped.</td></tr>
+  <tr><td><code>matchedRules</code>, <code>explanation</code>, <code>modelStatus</code></td><td>Why the event was scored. Status is <code>AVAILABLE</code> or <code>ML_UNAVAILABLE</code>.</td></tr>
+</table>
+<p>She can use plain HTML, React, or any frontend she already knows. A local page that lets the user pick a <code>.jsonl</code> file is enough. A small local server is optional. The page must work when she opens a saved log, with no dependency on the Java process staying alive.</p>
+
+<h3>What she should leave alone</h3>
+<ul>
+  <li>Do not rewrite detection in JavaScript. The scores in the file are the result.</li>
+  <li>Do not add a control that executes <code>Runtime.exec</code> or deserializes a class.</li>
+  <li>Do not show a block banner when <code>enforced</code> is false. Alert mode can contain a block-shaped decision that was not enforced.</li>
+  <li>Do not add exploit examples, shell payloads, or a “try an attack” box.</li>
+  <li>One <code>Runtime.exec</code> on this JDK can also produce a <code>PROCESS_BUILDER_START</code> line, because the JDK implements exec with <code>ProcessBuilder</code>. The UI should show both lines. It should not hide one of them.</li>
+</ul>
+
+<h2>5. Suggested split for the viva</h2>
+<table>
+  <tr><th>Person</th><th>Talks about</th></tr>
+  <tr><td>Agent owner</td><td>Instrumentation, rules, block policy, fail-open, the three live commands</td></tr>
+  <tr><td>Frontend teammate</td><td>How a reviewer reads an event: path, scores, decision, enforced flag, and why the raw command is absent</td></tr>
+</table>
+<p>Until her screens exist, the submission is still the Java project plus this brief. The frontend is the presentation layer on top of a finished agent.</p>
+
+</body>
+</html>

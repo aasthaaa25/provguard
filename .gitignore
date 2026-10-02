@@ -1,0 +1,14 @@
+target/
+*.class
+__pycache__/
+*.pyc
+.idea/
+.vscode/
+*.iml
+*.log
+events.jsonl
+reports/output/
+ml-training/models/
+ml-training/data/*.csv
+dist/
+.DS_Store
