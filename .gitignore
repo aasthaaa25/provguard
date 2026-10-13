@@ -10,5 +10,6 @@ events.jsonl
 reports/output/
 ml-training/models/
 ml-training/data/*.csv
+!ml-training/data/beth-sample.csv
 dist/
 .DS_Store

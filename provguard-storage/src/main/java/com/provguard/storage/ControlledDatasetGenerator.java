@@ -8,8 +8,8 @@ import java.util.Locale;
 import java.util.Random;
 
 /**
- * Writes a controlled feature dataset.
- * Rows are grouped by call-path family so training and test sets do not share a family.
+ * Writes a synthetic feature table kept for comparison.
+ * The packaged model is trained from the BETH sample in ml-training/data, not from this generator.
  */
 public final class ControlledDatasetGenerator {
     public static void main(String[] args) throws IOException {

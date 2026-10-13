@@ -12,7 +12,7 @@ The call-path trace is a stack trace. It is not a provenance graph and it is not
 - Rule engine: keywords, command shape, long arguments, special characters, reflection, unknown path, frequency, deserialization allowlist and denylist, external frames, missing application frames
 - Monitor, Alert, and Block modes
 - ThreadLocal recursion guard, bounded queue, one background worker, JSONL log
-- Java Isolation Forest trained only on benign call-path families and packaged inside the agent
+- Java Isolation Forest trained on benign BETH host logs from Kaggle, plus the recorded safe demo call paths, and packaged inside the agent
 - Second-JVM integration tests and a measured startup / process-call report
 - Architecture, class, and sequence diagrams
 
@@ -56,7 +56,7 @@ The agent scores events with the Isolation Forest class `IsolationForestModel`. 
 .\scripts\train-ml.ps1
 ```
 
-Training families and test families do not overlap. Suspicious families are test-only. The evaluation write-up is `reports/ml-evaluation.md`.
+Training uses the Kaggle BETH sample in `ml-training/data/beth-sample.csv`. Training families and test families do not overlap. Suspicious families are test-only. The evaluation write-up is `reports/ml-evaluation.md`.
 
 `mlUrl` is optional. When it is set, the agent asks that HTTP endpoint first and uses the packaged Java model if the endpoint is down. A missing model records `ML_UNAVAILABLE` and the rules decide.
 

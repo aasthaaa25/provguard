@@ -1,5 +1,7 @@
 package com.provguard.ml;
 
+import com.provguard.core.metadata.RiskLexicon;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -7,23 +9,30 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Random;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 
 /**
- * Builds the controlled dataset, trains the Java Isolation Forest, and writes the evaluation.
+ * Trains the Java Isolation Forest on a sample of the BETH host logs.
+ * The sample is drawn from the Kaggle dataset katehighnam/beth-dataset.
+ * Labels stay out of the feature vector. Live safe call shapes recorded by the
+ * agent demos are added so those JVM stacks stay inside the benign region.
  */
 public final class IsolationForestTrainer {
+    private static final int OBSERVED_COPIES = 200;
+    private static final Set<String> SPAWN_EVENTS = Set.of(
+            "connect", "socket", "bind", "execve", "clone", "fork", "vfork");
+
     private IsolationForestTrainer() {
     }
 
     public static void main(String[] args) throws IOException {
         Path module = moduleDir();
-        Path csv = module.resolve("../ml-training/data/controlled-events.csv").normalize();
+        Path csv = module.resolve("../ml-training/data/beth-features.csv").normalize();
         Path model = module.resolve("src/main/resources/com/provguard/ml/isolation-forest.json").normalize();
         Path report = module.resolve("../reports/ml-evaluation.md").normalize();
-        Result result = train(new Random(42));
+        Result result = train(new java.util.Random(42));
         Files.createDirectories(csv.getParent());
         Files.writeString(csv, result.csv(), StandardCharsets.UTF_8);
         Files.createDirectories(model.getParent());
@@ -33,11 +42,18 @@ public final class IsolationForestTrainer {
         Files.createDirectories(report.getParent());
         Files.writeString(report, result.report(), StandardCharsets.UTF_8);
         System.out.println(result.report());
+        System.out.println(result.summary());
         System.out.println("Model: " + model);
     }
 
-    public static Result train(Random random) {
-        List<Row> rows = dataset(random);
+    public static Result train(java.util.Random random) {
+        Objects.requireNonNull(random, "random");
+        List<Row> rows;
+        try {
+            rows = dataset();
+        } catch (IOException exception) {
+            throw new IllegalStateException("Could not read the BETH sample", exception);
+        }
         Set<String> trainFamilies = new TreeSet<>();
         Set<String> testFamilies = new TreeSet<>();
         List<double[]> benign = new ArrayList<>();
@@ -52,7 +68,7 @@ public final class IsolationForestTrainer {
         if (trainFamilies.stream().anyMatch(testFamilies::contains)) {
             throw new IllegalStateException("A call-path family is in both train and test");
         }
-        IsolationForestModel model = IsolationForestModel.fit(benign, new Random(42));
+        IsolationForestModel model = IsolationForestModel.fit(benign, new java.util.Random(42));
         double benignSum = 0;
         double suspiciousSum = 0;
         int benignCount = 0;
@@ -84,8 +100,11 @@ public final class IsolationForestTrainer {
         String report = """
                 # Isolation Forest evaluation
 
-                The model is a Java Isolation Forest trained on benign call-path families only. The test set is a held-out benign family plus suspicious families that were never shown to the model.
+                The model is a Java Isolation Forest trained on benign rows from the BETH host-log dataset published on Kaggle as `katehighnam/beth-dataset` (https://www.kaggle.com/datasets/katehighnam/beth-dataset). Training rows are `sus=0` and `evil=0` process events. The test set holds out other benign hosts plus `evil=1` events that were never shown to the model. The four safe call shapes recorded from the ProvGuard demos are included in training so those JVM stacks stay in the benign region.
 
+                The `evil` and `sus` columns are labels only. Features are the stack-address list, userspace pointer count, other stack entries, argument-value length, distinct argument names, event name, return value, user id, and process name.
+
+                - Sample file: `ml-training/data/beth-sample.csv`
                 - Test rows: %d
                 - Train families: %s
                 - Test families: %s
@@ -96,7 +115,7 @@ public final class IsolationForestTrainer {
 
                 A high anomaly score alerts. It does not block unless the deterministic rule score is already in the high band.
 
-                These figures describe this controlled dataset. They are not a claim about zero-day detection or about every Java attack.
+                These figures describe this BETH sample and the recorded safe demo shapes. They are not a claim about zero-day detection or about every Java attack.
                 """.formatted(
                 benignCount + suspiciousCount,
                 String.join(", ", trainFamilies),
@@ -122,6 +141,14 @@ public final class IsolationForestTrainer {
         return cwd;
     }
 
+    static Path samplePath() {
+        Path csv = moduleDir().resolve("../ml-training/data/beth-sample.csv").normalize();
+        if (!Files.isRegularFile(csv)) {
+            throw new IllegalStateException("BETH sample not found at " + csv);
+        }
+        return csv;
+    }
+
     private static String csv(List<Row> rows) {
         StringBuilder builder = new StringBuilder();
         builder.append("event_id,timestamp,sink_type,stack_depth,application_frame_count,jdk_frame_count,");
@@ -129,7 +156,7 @@ public final class IsolationForestTrainer {
         builder.append("keyword_risk_score,path_frequency,class_loader_count,rule_score,path_family,label,split\n");
         int id = 1;
         for (Row row : rows) {
-            builder.append(id++).append(",2026-10-01T00:00:00Z,")
+            builder.append(id++).append(",2021-05-01T00:00:00Z,")
                     .append(sinkName((int) row.features[9])).append(',')
                     .append((int) row.features[0]).append(',')
                     .append((int) row.features[1]).append(',')
@@ -154,129 +181,93 @@ public final class IsolationForestTrainer {
     static final double[] SAFE_DELEGATED = {6, 2, 4, 0, 2, 0, 25, 0, 2, 1, 2, 0};
     static final double[] SAFE_DESERIALIZE = {10, 3, 7, 0, 2, 0, 46, 0, 1, 2, 2, 0};
 
-    private static List<Row> dataset(Random random) {
+    private static List<Row> dataset() throws IOException {
         List<Row> rows = new ArrayList<>();
-        benign(rows, random, "safe-echo", 180, "train", 0);
-        benign(rows, random, "safe-runtime", 120, "train", 1);
-        benign(rows, random, "safe-deserialize", 80, "train", 2);
+        for (String line : Files.readAllLines(samplePath(), StandardCharsets.UTF_8)) {
+            if (line.isBlank() || line.startsWith("family,")) {
+                continue;
+            }
+            rows.add(fromSample(line));
+        }
+        if (rows.isEmpty()) {
+            throw new IllegalStateException("BETH sample has no rows");
+        }
         observedSafe(rows);
-        benign(rows, random, "heldout-safe-batch", 40, "test", 1);
-        suspicious(rows, random, "suspicious-keyword", 40, 55, 0, 70);
-        suspicious(rows, random, "suspicious-reflection", 30, 35, 1, 75);
-        suspicious(rows, random, "suspicious-deserialize", 20, 0, 0, 80);
-        suspicious(rows, random, "suspicious-frequency", 20, 35, 0, 60);
         return rows;
     }
 
+    private static Row fromSample(String line) {
+        String[] column = line.split(",", -1);
+        if (column.length != 14) {
+            throw new IllegalStateException("BETH sample row has " + column.length + " columns");
+        }
+        int stack = integer(column[6]);
+        int userspace = integer(column[7]);
+        int other = integer(column[8]);
+        int argumentLength = integer(column[9]);
+        int names = integer(column[10]);
+        int returnValue = integer(column[11]);
+        int userId = integer(column[12]);
+        String process = column[4];
+        String event = column[5];
+        int keyword = RiskLexicon.keywordRiskScore(RiskLexicon.keywordCount(column[13]));
+        int reflection = unusualControl(event) ? 1 : 0;
+        int sink = SPAWN_EVENTS.contains(event) ? 0 : 1;
+        int rule = structuralScore(keyword, returnValue, userId, sink);
+        double[] features = {
+                stack,
+                userspace,
+                0,
+                other,
+                Math.max(1, names),
+                reflection,
+                argumentLength,
+                keyword,
+                commonProcess(process) ? 1 : 2,
+                sink,
+                2,
+                rule
+        };
+        return new Row(features, column[0], column[1], column[2]);
+    }
+
+    private static int structuralScore(int keyword, int returnValue, int userId, int sink) {
+        int score = keyword;
+        if (returnValue < 0) {
+            score += 25;
+        }
+        if (userId != 0) {
+            score += 20;
+        }
+        if (sink == 0) {
+            score += 20;
+        }
+        return Math.min(100, score);
+    }
+
+    private static boolean unusualControl(String event) {
+        return "ptrace".equals(event) || event.startsWith("process_vm") || "init_module".equals(event);
+    }
+
+    private static boolean commonProcess(String process) {
+        return "ps".equals(process) || "cron".equals(process) || "snapd".equals(process)
+                || process.startsWith("systemd");
+    }
+
+    private static int integer(String value) {
+        return Integer.parseInt(value.trim());
+    }
+
     private static void observedSafe(List<Row> rows) {
-        repeat(rows, "safe-echo", SAFE_ECHO, 40);
-        repeat(rows, "safe-runtime", SAFE_RUNTIME, 40);
-        repeat(rows, "safe-runtime", SAFE_DELEGATED, 40);
-        repeat(rows, "safe-deserialize", SAFE_DESERIALIZE, 40);
+        repeat(rows, "safe-echo", SAFE_ECHO, OBSERVED_COPIES);
+        repeat(rows, "safe-runtime", SAFE_RUNTIME, OBSERVED_COPIES);
+        repeat(rows, "safe-runtime", SAFE_DELEGATED, OBSERVED_COPIES);
+        repeat(rows, "safe-deserialize", SAFE_DESERIALIZE, OBSERVED_COPIES);
     }
 
     private static void repeat(List<Row> rows, String family, double[] features, int count) {
         for (int i = 0; i < count; i++) {
             rows.add(new Row(features.clone(), family, "BENIGN", "train"));
-        }
-    }
-
-    private static void benign(List<Row> rows, Random random, String family, int count, String split, int sink) {
-        for (int i = 0; i < count; i++) {
-            double[] features = switch (i % 3) {
-                case 0 -> shallow(random, sink);
-                case 1 -> echoLike(random, sink);
-                default -> sink == 2 ? deserializeLike(random) : delegated(random, sink);
-            };
-            rows.add(new Row(features, family, "BENIGN", split));
-        }
-    }
-
-    private static double[] shallow(Random random, int sink) {
-        return new double[] {
-                4 + random.nextInt(3),
-                2 + random.nextInt(2),
-                2 + random.nextInt(2),
-                random.nextInt(2),
-                2 + random.nextInt(2),
-                0,
-                10 + random.nextInt(30),
-                0,
-                1 + random.nextInt(2),
-                sink,
-                1 + random.nextInt(2),
-                random.nextInt(15)
-        };
-    }
-
-    private static double[] echoLike(Random random, int sink) {
-        return new double[] {
-                3,
-                2,
-                1,
-                0,
-                2,
-                0,
-                12 + random.nextInt(30),
-                0,
-                1 + random.nextInt(2),
-                sink,
-                2,
-                random.nextInt(6)
-        };
-    }
-
-    private static double[] delegated(Random random, int sink) {
-        return new double[] {
-                6,
-                2,
-                4,
-                0,
-                2,
-                0,
-                20 + random.nextInt(12),
-                0,
-                2,
-                sink,
-                2,
-                random.nextInt(6)
-        };
-    }
-
-    private static double[] deserializeLike(Random random) {
-        return new double[] {
-                9 + random.nextInt(3),
-                3,
-                6 + random.nextInt(3),
-                0,
-                2,
-                0,
-                40 + random.nextInt(12),
-                0,
-                1,
-                2,
-                2,
-                0
-        };
-    }
-
-    private static void suspicious(List<Row> rows, Random random, String family, int count,
-                                   int keyword, int reflection, int rule) {
-        for (int i = 0; i < count; i++) {
-            rows.add(new Row(new double[] {
-                    8 + random.nextInt(4),
-                    1 + random.nextInt(2),
-                    3 + random.nextInt(3),
-                    2 + random.nextInt(3),
-                    3 + random.nextInt(3),
-                    reflection,
-                    40 + random.nextInt(80),
-                    keyword,
-                    5 + random.nextInt(4),
-                    1,
-                    1 + random.nextInt(2),
-                    Math.min(100, rule + random.nextInt(10))
-            }, family, "SUSPICIOUS", "test"));
         }
     }
 
