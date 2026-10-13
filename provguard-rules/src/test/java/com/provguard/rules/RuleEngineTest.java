@@ -1,5 +1,6 @@
 package com.provguard.rules;
 
+import com.provguard.core.CallFrame;
 import com.provguard.core.Decision;
 import com.provguard.core.RiskResult;
 import com.provguard.core.SecurityEvent;
@@ -11,6 +12,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -114,6 +116,24 @@ class RuleEngineTest {
         assertTrue(result.matchedRules().contains("LONG_ARGUMENT"));
         assertTrue(result.matchedRules().contains("SPECIAL_CHARACTER_DENSITY"));
         assertTrue(result.matchedRules().contains("UNKNOWN_EXTERNAL_LIBRARY_RATIO"));
+    }
+
+    @Test
+    void missingApplicationFramesMatchTheClassLoaderRule() {
+        SecurityEvent event = RiskRules.event(SinkType.RUNTIME_EXEC).toBuilder()
+                .applicationFrameCount(0)
+                .stackDepth(2)
+                .callFrames(List.of(new CallFrame(
+                        "java.lang.Runtime",
+                        "exec",
+                        "Runtime.java",
+                        1,
+                        "java.base",
+                        "bootstrap",
+                        false)))
+                .build();
+        RiskResult result = analyzer().analyze(event);
+        assertTrue(result.matchedRules().contains("NON_APPLICATION_CLASS_LOADER"));
     }
 
     private static RuleBasedRiskAnalyzer analyzer() {

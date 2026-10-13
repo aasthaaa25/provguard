@@ -18,6 +18,15 @@ class IsolationForestTest {
     }
 
     @Test
+    void liveSafeShapesScoreBelowTheAlertThreshold() {
+        IsolationForestModel model = IsolationForestTrainer.train(new Random(42)).model();
+        assertTrue(model.score(IsolationForestTrainer.SAFE_ECHO) < 80);
+        assertTrue(model.score(IsolationForestTrainer.SAFE_RUNTIME) < 80);
+        assertTrue(model.score(IsolationForestTrainer.SAFE_DELEGATED) < 80);
+        assertTrue(model.score(IsolationForestTrainer.SAFE_DESERIALIZE) < 80);
+    }
+
+    @Test
     void modelRoundTripsThroughJson() throws Exception {
         IsolationForestModel trained = IsolationForestTrainer.train(new Random(42)).model();
         java.nio.file.Path file = java.nio.file.Files.createTempFile("provguard-iforest", ".json");

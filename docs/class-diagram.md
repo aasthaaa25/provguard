@@ -29,6 +29,7 @@ classDiagram
     class MlScorer {
         <<interface>>
     }
+    class ResilientMlScorer
     class IsolationForestScorer
     class RestMlScorer
     class FallbackMlScorer
@@ -44,13 +45,17 @@ classDiagram
     EventPipeline --> EventQueue
     EventPipeline --> MlScorer
     SecurityEventWorker --> JsonlEventWriter
+    ResilientMlScorer ..|> MlScorer
     IsolationForestScorer ..|> MlScorer
     RestMlScorer ..|> MlScorer
     FallbackMlScorer ..|> MlScorer
+    ResilientMlScorer --> IsolationForestScorer
+    ResilientMlScorer --> RestMlScorer
+    ResilientMlScorer --> FallbackMlScorer
     ProvGuardAgent --> EventPipeline
     RiskRule <|-- KeywordRule
     RiskRule <|-- DeserializationClassRule
     RiskRule <|-- ReflectionRule
 ```
 
-`KeywordRule`, `DeserializationClassRule`, and `ReflectionRule` stand in for the full rule set in `provguard-rules`. Each rule returns a score delta. `BlockingPolicy` is the only place that turns those scores into allow, alert, or block.
+`KeywordRule`, `DeserializationClassRule`, and `ReflectionRule` stand in for the full rule set in `provguard-rules`. Each rule returns a score delta. `BlockingPolicy` is the only place that turns those scores into allow, alert, or block. `ResilientMlScorer` is the scorer the agent constructs: an optional REST endpoint first, then the packaged Isolation Forest, then `FallbackMlScorer` when that model file is missing.

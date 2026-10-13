@@ -58,4 +58,20 @@ class StorageTest {
         new ReportGenerator().writeCsv(jsonl, csv);
         assertTrue(Files.readString(csv).contains("event_id"));
     }
+
+    @Test
+    void enrichedAlertMovesTheAllowCount() {
+        EventStatistics statistics = new EventStatistics();
+        RiskResult fast = new RiskResult(0, null, 0, RiskLevel.LOW, Decision.ALLOW, Decision.ALLOW,
+                List.of(), "ML_UNAVAILABLE", "No deterministic rule matched", false);
+        RiskResult enriched = new RiskResult(0, 100, 30, RiskLevel.MEDIUM, Decision.ALERT, Decision.ALERT,
+                List.of(), "AVAILABLE",
+                "Anomaly score is high, so the event is alerted and not blocked.", false);
+        statistics.onCaptured(fast, true);
+        statistics.reviseModel(fast, enriched);
+        assertEquals(0, statistics.allowed());
+        assertEquals(1, statistics.alerted());
+        assertEquals(0, statistics.blocked());
+        assertEquals(0, statistics.mlUnavailable());
+    }
 }

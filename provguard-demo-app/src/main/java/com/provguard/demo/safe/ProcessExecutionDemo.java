@@ -7,7 +7,7 @@ public final class ProcessExecutionDemo {
     }
 
     public static void run() throws Exception {
-        Process started = new ProcessBuilder(LocalCommand.echo("provguard-ok")).start();
+        Process started = new ProcessBuilder(LocalCommand.echo("benign-local-check-provguard-ok")).start();
         started.waitFor();
         Process executed = Runtime.getRuntime().exec(LocalCommand.echoCommand("provguard-runtime-ok"));
         executed.waitFor();

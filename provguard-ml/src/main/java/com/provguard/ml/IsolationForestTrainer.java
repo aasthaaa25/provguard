@@ -149,11 +149,17 @@ public final class IsolationForestTrainer {
         return builder.toString();
     }
 
+    static final double[] SAFE_ECHO = {3, 2, 1, 0, 2, 0, 36, 0, 1, 1, 2, 0};
+    static final double[] SAFE_RUNTIME = {3, 2, 1, 0, 2, 0, 25, 0, 1, 0, 2, 0};
+    static final double[] SAFE_DELEGATED = {6, 2, 4, 0, 2, 0, 25, 0, 2, 1, 2, 0};
+    static final double[] SAFE_DESERIALIZE = {10, 3, 7, 0, 2, 0, 46, 0, 1, 2, 2, 0};
+
     private static List<Row> dataset(Random random) {
         List<Row> rows = new ArrayList<>();
         benign(rows, random, "safe-echo", 180, "train", 0);
         benign(rows, random, "safe-runtime", 120, "train", 1);
         benign(rows, random, "safe-deserialize", 80, "train", 2);
+        observedSafe(rows);
         benign(rows, random, "heldout-safe-batch", 40, "test", 1);
         suspicious(rows, random, "suspicious-keyword", 40, 55, 0, 70);
         suspicious(rows, random, "suspicious-reflection", 30, 35, 1, 75);
@@ -162,23 +168,96 @@ public final class IsolationForestTrainer {
         return rows;
     }
 
+    private static void observedSafe(List<Row> rows) {
+        repeat(rows, "safe-echo", SAFE_ECHO, 40);
+        repeat(rows, "safe-runtime", SAFE_RUNTIME, 40);
+        repeat(rows, "safe-runtime", SAFE_DELEGATED, 40);
+        repeat(rows, "safe-deserialize", SAFE_DESERIALIZE, 40);
+    }
+
+    private static void repeat(List<Row> rows, String family, double[] features, int count) {
+        for (int i = 0; i < count; i++) {
+            rows.add(new Row(features.clone(), family, "BENIGN", "train"));
+        }
+    }
+
     private static void benign(List<Row> rows, Random random, String family, int count, String split, int sink) {
         for (int i = 0; i < count; i++) {
-            rows.add(new Row(new double[] {
-                    4 + random.nextInt(3),
-                    2 + random.nextInt(2),
-                    2 + random.nextInt(2),
-                    random.nextInt(2),
-                    2 + random.nextInt(2),
-                    0,
-                    10 + random.nextInt(30),
-                    0,
-                    1 + random.nextInt(2),
-                    sink,
-                    1,
-                    random.nextInt(15)
-            }, family, "BENIGN", split));
+            double[] features = switch (i % 3) {
+                case 0 -> shallow(random, sink);
+                case 1 -> echoLike(random, sink);
+                default -> sink == 2 ? deserializeLike(random) : delegated(random, sink);
+            };
+            rows.add(new Row(features, family, "BENIGN", split));
         }
+    }
+
+    private static double[] shallow(Random random, int sink) {
+        return new double[] {
+                4 + random.nextInt(3),
+                2 + random.nextInt(2),
+                2 + random.nextInt(2),
+                random.nextInt(2),
+                2 + random.nextInt(2),
+                0,
+                10 + random.nextInt(30),
+                0,
+                1 + random.nextInt(2),
+                sink,
+                1 + random.nextInt(2),
+                random.nextInt(15)
+        };
+    }
+
+    private static double[] echoLike(Random random, int sink) {
+        return new double[] {
+                3,
+                2,
+                1,
+                0,
+                2,
+                0,
+                12 + random.nextInt(30),
+                0,
+                1 + random.nextInt(2),
+                sink,
+                2,
+                random.nextInt(6)
+        };
+    }
+
+    private static double[] delegated(Random random, int sink) {
+        return new double[] {
+                6,
+                2,
+                4,
+                0,
+                2,
+                0,
+                20 + random.nextInt(12),
+                0,
+                2,
+                sink,
+                2,
+                random.nextInt(6)
+        };
+    }
+
+    private static double[] deserializeLike(Random random) {
+        return new double[] {
+                9 + random.nextInt(3),
+                3,
+                6 + random.nextInt(3),
+                0,
+                2,
+                0,
+                40 + random.nextInt(12),
+                0,
+                1,
+                2,
+                2,
+                0
+        };
     }
 
     private static void suspicious(List<Row> rows, Random random, String family, int count,
@@ -195,7 +274,7 @@ public final class IsolationForestTrainer {
                     keyword,
                     5 + random.nextInt(4),
                     1,
-                    2,
+                    1 + random.nextInt(2),
                     Math.min(100, rule + random.nextInt(10))
             }, family, "SUSPICIOUS", "test"));
         }

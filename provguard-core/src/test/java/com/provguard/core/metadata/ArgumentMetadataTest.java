@@ -41,5 +41,18 @@ class ArgumentMetadataTest {
                 "com.provguard.demo.unsafe.BlockedDemoObject");
         assertEquals("com.provguard.demo.unsafe.BlockedDemoObject", snapshot.requestedClassName());
         assertEquals(0, snapshot.keywordCount());
+        assertTrue(snapshot.preview().endsWith("..."));
+        assertFalse(snapshot.preview().contains("BlockedDemoObject"));
+    }
+
+    @Test
+    void safeDemoMarkerSitsPastThePreviewOnBothOperatingSystems() {
+        String text = "benign-local-check-provguard-ok";
+        String linux = "echo " + text;
+        String windows = "cmd.exe /c echo " + text;
+        assertTrue(linux.indexOf("provguard-ok") >= RiskLexicon.PREVIEW_LIMIT);
+        assertTrue(windows.indexOf("provguard-ok") >= RiskLexicon.PREVIEW_LIMIT);
+        assertFalse(RiskLexicon.redact(linux).contains("provguard-ok"));
+        assertFalse(RiskLexicon.redact(windows).contains("provguard-ok"));
     }
 }

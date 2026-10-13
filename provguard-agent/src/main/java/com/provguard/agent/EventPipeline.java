@@ -22,8 +22,11 @@ import com.provguard.storage.EventQueue;
 import com.provguard.storage.EventStatistics;
 import com.provguard.storage.JsonlEventWriter;
 import com.provguard.storage.SecurityEventObserver;
+import com.provguard.storage.ReportGenerator;
 import com.provguard.storage.SecurityEventWorker;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -256,7 +259,24 @@ public final class EventPipeline implements AutoCloseable {
         try {
             worker.close();
         } finally {
+            writeCsvReport();
             System.out.println("ProvGuard statistics " + statistics.summary());
+        }
+    }
+
+    private void writeCsvReport() {
+        try {
+            Path jsonl = config.eventsFile();
+            if (jsonl == null || !Files.isRegularFile(jsonl)) {
+                return;
+            }
+            String name = jsonl.getFileName().toString();
+            String csvName = name.endsWith(".jsonl")
+                    ? name.substring(0, name.length() - ".jsonl".length()) + ".csv"
+                    : name + ".csv";
+            new ReportGenerator().writeCsv(jsonl, jsonl.resolveSibling(csvName));
+        } catch (Throwable failure) {
+            System.err.println("ProvGuard could not write the CSV report. " + failure.getMessage());
         }
     }
 }

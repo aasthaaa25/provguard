@@ -44,6 +44,18 @@ public final class EventStatistics {
         } else if (!fastMissing && enrichedMissing) {
             mlUnavailable.incrementAndGet();
         }
+        if (fast.enforced() || enriched.enforced() || fast.decision() == enriched.decision()) {
+            return;
+        }
+        move(fast.decision(), -1);
+        move(enriched.decision(), 1);
+    }
+
+    private void move(Decision decision, int delta) {
+        switch (decision) {
+            case ALLOW -> allowed.addAndGet(delta);
+            case ALERT, BLOCK -> alerted.addAndGet(delta);
+        }
     }
 
     public long captured() {

@@ -15,11 +15,11 @@ public final class HybridRiskAnalyzer {
         Decision visible = BlockingPolicy.visible(mode, analytical);
         boolean enforced = BlockingPolicy.shouldBlock(mode, analytical);
         int finalScore = BlockingPolicy.finalScore(rules.ruleScore(), mlScore, available);
-        String explanation = rules.explanation();
-        if (!available && !explanation.contains("ML scoring is unavailable")) {
+        String explanation = stripMlNotes(rules.explanation());
+        if (!available) {
             explanation = explanation + " ML scoring is unavailable; rules decide.";
         } else if (analytical == Decision.ALERT && rules.ruleScore() < BlockingPolicy.MEDIUM_RULE_SCORE) {
-            explanation = explanation + " Anomaly score is high, so the event is alerted and not blocked.";
+            explanation = "Anomaly score is high, so the event is alerted and not blocked.";
         }
         return new RiskResult(
                 rules.ruleScore(),
@@ -32,5 +32,12 @@ public final class HybridRiskAnalyzer {
                 available ? "AVAILABLE" : modelStatus,
                 explanation.trim(),
                 enforced);
+    }
+
+    private static String stripMlNotes(String explanation) {
+        String stripped = explanation == null ? "" : explanation;
+        stripped = stripped.replace(" ML scoring is unavailable; rules decide.", "");
+        stripped = stripped.replace("Anomaly score is high, so the event is alerted and not blocked.", "");
+        return stripped.trim();
     }
 }

@@ -32,7 +32,7 @@ public final class ArgumentMetadataCollector {
                 "ObjectStreamClass",
                 value.length(),
                 Digests.sha256(value),
-                value,
+                RiskLexicon.redact(value),
                 0,
                 0,
                 0,

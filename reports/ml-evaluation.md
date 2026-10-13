@@ -5,10 +5,10 @@ The model is a Java Isolation Forest trained on benign call-path families only. 
 - Test rows: 150
 - Train families: safe-deserialize, safe-echo, safe-runtime
 - Test families: heldout-safe-batch, suspicious-deserialize, suspicious-frequency, suspicious-keyword, suspicious-reflection
-- Mean score on held-out benign rows: 51.7
-- Mean score on suspicious rows: 94.0
+- Mean score on held-out benign rows: 39.3
+- Mean score on suspicious rows: 96.3
 - Recall at score 80: 1.00
-- False positive rate at score 80: 0.13
+- False positive rate at score 80: 0.20
 
 A high anomaly score alerts. It does not block unless the deterministic rule score is already in the high band.
 

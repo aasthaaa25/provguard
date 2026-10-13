@@ -27,6 +27,9 @@ class EventPipelineTest {
             assertEquals(0, pipeline.statistics().blocked());
             assertEquals(1, pipeline.statistics().captured());
         }
+        String name = events.getFileName().toString();
+        Path csv = events.resolveSibling(name.substring(0, name.length() - ".jsonl".length()) + ".csv");
+        assertTrue(Files.isRegularFile(csv));
     }
 
     @Test

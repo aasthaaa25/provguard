@@ -60,13 +60,13 @@
   <tr><td>Tests</td><td>unit tests and <code>provguard-it</code></td><td>Second JVM started with <code>-javaagent</code></td></tr>
   <tr><td>Docs</td><td><code>docs/</code> and <code>README.md</code></td><td>Architecture, class, and sequence diagrams; test map; viva notes</td></tr>
 </table>
-<p>Measured on this machine: startup 147.5 ms without the agent and 2059.3 ms with it, because the agent installs its hooks. An allowed echo call went from 87.3 ms to 98.8 ms, about 13%. On the held-out dataset, mean suspicious score 94.0, mean held-out benign score 51.7, recall at 80 is 1.00, false-positive rate at 80 is 0.13. Say these numbers as measurements. Do not say the overhead is low, and do not say the model catches every attack.</p>
+<p>Measured on this machine: startup 147.5 ms without the agent and 2059.3 ms with it, because the agent installs its hooks. An allowed echo call went from 87.3 ms to 98.8 ms, about 13%. On the held-out dataset, mean suspicious score 96.3, mean held-out benign score 39.3, recall at 80 is 1.00, false-positive rate at 80 is 0.20. Say these numbers as measurements. Do not say the overhead is low, and do not say the model catches every attack.</p>
 <div class="note">
   <strong>Not in this version, and do not claim them:</strong> JNDI coverage, a dashboard, ONNX, dynamic attach, taint tracking, a provenance graph, Log4Shell coverage, exploit payloads, a slide deck, and a demo video. The dashboard is the frontend teammate’s job.
 </div>
 
 <h2>3. How to show this to sir</h2>
-<p>Give him the project folder, or a GitHub link after the team pushes it. The code is complete locally and has not been pushed yet. Open the README, then run the three demos live. After each run, open <code>events.jsonl</code> in the project root.</p>
+<p>Open the README, then run the three demos live. After each run, open <code>events.jsonl</code> in the project root. The demos produce that file. It is not stored in the repository.</p>
 <pre>mvn verify
 
 .\scripts\run-demo.ps1 -Mode MONITOR -Demo safe
@@ -100,7 +100,7 @@
 </ol>
 
 <h3>Data she should use</h3>
-<p>The agent appends one JSON object per line to <code>events.jsonl</code>. Sample runs are already in <code>reports/output/</code>. She can develop against those files before she runs Java. Important fields:</p>
+<p>The agent appends one JSON object per line to <code>events.jsonl</code>. That file is produced by the demos and is gitignored, along with <code>reports/output/</code>. Run the three demos to create a log before building the page. Important fields:</p>
 <table>
   <tr><th>Field</th><th>Use it for</th></tr>
   <tr><td><code>sinkType</code></td><td><code>RUNTIME_EXEC</code>, <code>PROCESS_BUILDER_START</code>, or <code>DESERIALIZATION_RESOLVE_CLASS</code></td></tr>
