@@ -80,6 +80,17 @@ The script writes `reports/performance-results.md` from the runs on this machine
 
 A confirmed block is thrown on the application thread before the monitored method runs. The background worker never throws it.
 
+## Web dashboard
+
+A browser dashboard reads the agent's `events.jsonl` through a small read-only Java service. It adds no second detector and never changes the agent. Full guide: [`docs/web-dashboard.md`](docs/web-dashboard.md).
+
+```powershell
+mvn -DskipTests package
+.\scripts\run-demo.ps1 -Mode ALERT -Demo suspicious     # writes events.jsonl
+.\scripts\run-dashboard.ps1                              # then open http://127.0.0.1:8765/
+.\scripts\run-dashboard.ps1 -Demo                        # labelled sample data, no agent needed
+```
+
 ## Layout
 
 ```text
@@ -88,6 +99,7 @@ provguard-rules      deterministic rules and blocking policy
 provguard-storage    queue, worker, JSONL, CSV report
 provguard-ml         feature vector, Java Isolation Forest, optional REST client
 provguard-agent      premain, Byte Buddy advice, fast path
+provguard-web        read-only HTTP bridge and browser dashboard (plain HTML, CSS, JavaScript)
 provguard-demo-app   local echo and deserialization demos
 provguard-it         second-JVM agent tests
 docs                 architecture, diagrams, tests, limits

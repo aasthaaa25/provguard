@@ -17,6 +17,7 @@
         <module>provguard-storage</module>
         <module>provguard-ml</module>
         <module>provguard-agent</module>
+        <module>provguard-web</module>
         <module>provguard-demo-app</module>
         <module>provguard-it</module>
     </modules>
