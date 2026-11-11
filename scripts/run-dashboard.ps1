@@ -17,9 +17,12 @@ if ($Events -eq "") {
     $Events = Join-Path $root "events.jsonl"
 }
 
-$java = "java"
+$java = "C:\Program Files\Java\jdk-26.0.2\bin\java.exe"
 if ($env:JAVA_HOME -and (Test-Path (Join-Path $env:JAVA_HOME "bin\java.exe"))) {
     $java = Join-Path $env:JAVA_HOME "bin\java.exe"
+}
+if (-not (Test-Path $java)) {
+    $java = "java"
 }
 
 $arguments = @("-jar", $jar, "--port", "$Port", "--reports", (Join-Path $root "reports"))

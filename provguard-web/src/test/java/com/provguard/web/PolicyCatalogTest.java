@@ -58,9 +58,11 @@ class PolicyCatalogTest {
         SecurityEvent denied = RiskRules.event(SinkType.DESERIALIZATION_RESOLVE_CLASS).toBuilder().requestedClassName("bad.Denied").build();
         SecurityEvent allowed = RiskRules.event(SinkType.DESERIALIZATION_RESOLVE_CLASS).toBuilder().requestedClassName("ok.Allowed").build();
         SecurityEvent unknown = RiskRules.event(SinkType.DESERIALIZATION_RESOLVE_CLASS).toBuilder().requestedClassName("x.Mystery").build();
+        SecurityEvent jndi = RiskRules.event(SinkType.JNDI_LOOKUP).toBuilder().redactedArgumentPreview("ldap://127.0.0.1:1389/Exploit").urlLike(true).build();
+        SecurityEvent script = RiskRules.event(SinkType.SCRIPT_ENGINE_EVAL).toBuilder().redactedArgumentPreview("java.lang.Runtime.getRuntime().exec()").build();
 
         Map<String, Integer> observed = new HashMap<>();
-        for (SecurityEvent event : List.of(process, libs, denied, allowed, unknown)) {
+        for (SecurityEvent event : List.of(process, libs, denied, allowed, unknown, jndi, script)) {
             for (RiskRule rule : rules) {
                 for (RuleEvaluation evaluation : rule.evaluateAll(event)) {
                     observed.put(evaluation.ruleId(), evaluation.scoreDelta());

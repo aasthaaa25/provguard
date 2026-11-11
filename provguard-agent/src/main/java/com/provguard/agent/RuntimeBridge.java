@@ -47,4 +47,18 @@ public final class RuntimeBridge {
             current.onResolveClass(className);
         }
     }
+
+    public static void onJndiLookup(Object name) {
+        EventPipeline current = pipeline;
+        if (current != null) {
+            current.onJndiLookup(name);
+        }
+    }
+
+    public static void onScriptEngineEval(Object script) {
+        EventPipeline current = pipeline;
+        if (current != null) {
+            current.onScriptEngineEval(script);
+        }
+    }
 }

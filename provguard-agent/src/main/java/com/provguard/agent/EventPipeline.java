@@ -132,6 +132,28 @@ public final class EventPipeline implements AutoCloseable {
                 ArgumentMetadataCollector.fromClassName(className)));
     }
 
+    public void onJndiLookup(Object name) {
+        String text = name == null ? null : String.valueOf(name);
+        guard(() -> submit(
+                SinkType.JNDI_LOOKUP,
+                "Context.lookup",
+                ArgumentMetadataCollector.fromCommandText(
+                        name == null ? 0 : 1,
+                        name == null ? "null" : name.getClass().getSimpleName(),
+                        text)));
+    }
+
+    public void onScriptEngineEval(Object script) {
+        String text = script == null ? null : String.valueOf(script);
+        guard(() -> submit(
+                SinkType.SCRIPT_ENGINE_EVAL,
+                "ScriptEngine.eval",
+                ArgumentMetadataCollector.fromCommandText(
+                        script == null ? 0 : 1,
+                        script == null ? "null" : script.getClass().getSimpleName(),
+                        text)));
+    }
+
     public void submit(SinkType sinkType, String sinkMethod, ArgumentSnapshot snapshot) {
         StackTraceCollector.CapturedStack stack = StackTraceCollector.capture(config, sinkLabel(sinkType));
         int frequency = frequencyRule.observe(sinkType, stack.pathSignature());
@@ -219,7 +241,10 @@ public final class EventPipeline implements AutoCloseable {
                     sinkMethod, stack.frames(), stack.pathSignature(), stack.pathFamily(), stack.counts(), snapshot, frequency);
             case DESERIALIZATION_RESOLVE_CLASS -> SecurityEventFactory.deserialization(
                     sinkMethod, stack.frames(), stack.pathSignature(), stack.pathFamily(), stack.counts(), snapshot, frequency);
-            default -> throw new IllegalArgumentException("Sink is not monitored in this version: " + sinkType);
+            case JNDI_LOOKUP -> SecurityEventFactory.jndiLookup(
+                    sinkMethod, stack.frames(), stack.pathSignature(), stack.pathFamily(), stack.counts(), snapshot, frequency);
+            case SCRIPT_ENGINE_EVAL -> SecurityEventFactory.scriptEngine(
+                    sinkMethod, stack.frames(), stack.pathSignature(), stack.pathFamily(), stack.counts(), snapshot, frequency);
         };
     }
 
@@ -228,7 +253,8 @@ public final class EventPipeline implements AutoCloseable {
             case RUNTIME_EXEC -> "Runtime.exec";
             case PROCESS_BUILDER_START -> "ProcessBuilder.start";
             case DESERIALIZATION_RESOLVE_CLASS -> "ObjectInputStream.resolveClass";
-            default -> sinkType.name();
+            case JNDI_LOOKUP -> "Context.lookup";
+            case SCRIPT_ENGINE_EVAL -> "ScriptEngine.eval";
         };
     }
 

@@ -54,6 +54,44 @@ public final class SecurityEventFactory {
                 pathFrequency);
     }
 
+    public static SecurityEvent jndiLookup(
+            String sinkMethod,
+            List<CallFrame> frames,
+            String pathSignature,
+            String pathFamily,
+            StackCounts counts,
+            ArgumentSnapshot arguments,
+            int pathFrequency) {
+        return create(
+                SinkType.JNDI_LOOKUP,
+                sinkMethod,
+                frames,
+                pathSignature,
+                pathFamily,
+                counts,
+                arguments,
+                pathFrequency);
+    }
+
+    public static SecurityEvent scriptEngine(
+            String sinkMethod,
+            List<CallFrame> frames,
+            String pathSignature,
+            String pathFamily,
+            StackCounts counts,
+            ArgumentSnapshot arguments,
+            int pathFrequency) {
+        return create(
+                SinkType.SCRIPT_ENGINE_EVAL,
+                sinkMethod,
+                frames,
+                pathSignature,
+                pathFamily,
+                counts,
+                arguments,
+                pathFrequency);
+    }
+
     private static SecurityEvent create(
             SinkType sinkType,
             String sinkMethod,

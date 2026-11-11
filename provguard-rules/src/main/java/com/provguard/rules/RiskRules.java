@@ -29,6 +29,8 @@ public final class RiskRules {
         rules.add(new UnknownPathRule(knownPackages, knownSignatures));
         rules.add(frequencyRule);
         rules.add(new DeserializationClassRule(allowlist, denylist));
+        rules.add(new JndiProtocolRule());
+        rules.add(new ScriptInjectionRule());
         rules.add(new ExternalLibraryRule());
         rules.add(new ClassLoaderRule());
         return List.copyOf(rules);

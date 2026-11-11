@@ -11,7 +11,7 @@ public final class RiskLexicon {
     public static final int PREVIEW_LIMIT = 20;
     private static final Pattern SECRET = Pattern.compile(
             "(?i)(password|passwd|token|secret|api[_-]?key|authorization)\\s*[:=]\\s*\\S+");
-    private static final Pattern URL = Pattern.compile("(?i)https?://");
+    private static final Pattern URL = Pattern.compile("(?i)(https?|ldap|rmi|dns|iiop|corbaname)://");
     private static final String[] KEYWORDS = {
             "powershell",
             "invoke-expression",
@@ -26,7 +26,11 @@ public final class RiskLexicon {
             "regsvr32",
             "/dev/tcp",
             "nc.exe",
-            "ncat"
+            "ncat",
+            "runtime",
+            "processbuilder",
+            "scriptengine",
+            "nashorn"
     };
 
     private RiskLexicon() {

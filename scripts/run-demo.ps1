@@ -1,7 +1,7 @@
 param(
     [ValidateSet("MONITOR", "ALERT", "BLOCK")]
     [string]$Mode = "MONITOR",
-    [ValidateSet("safe", "suspicious", "blocked")]
+    [ValidateSet("safe", "suspicious", "blocked", "jndi", "script")]
     [string]$Demo = "safe"
 )
 
@@ -19,9 +19,11 @@ $main = switch ($Demo) {
     "safe" { "com.provguard.demo.safe.SafeDemoApplication" }
     "suspicious" { "com.provguard.demo.suspicious.SuspiciousPathDemo" }
     "blocked" { "com.provguard.demo.safe.DeserializationDemo" }
+    "jndi" { "com.provguard.demo.safe.JndiDemo" }
+    "script" { "com.provguard.demo.safe.ScriptDemo" }
 }
 $appArgs = @()
-if ($Demo -eq "blocked") {
+if ($Demo -eq "blocked" -or $Demo -eq "jndi" -or $Demo -eq "script") {
     $appArgs = @("blocked")
 }
 

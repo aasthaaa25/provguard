@@ -33,7 +33,9 @@ public final class PolicyCatalog {
 
     private static final List<String> PROCESS = List.of("RUNTIME_EXEC", "PROCESS_BUILDER_START");
     private static final List<String> DESER = List.of("DESERIALIZATION_RESOLVE_CLASS");
-    private static final List<String> ALL = List.of("RUNTIME_EXEC", "PROCESS_BUILDER_START", "DESERIALIZATION_RESOLVE_CLASS");
+    private static final List<String> JNDI = List.of("JNDI_LOOKUP");
+    private static final List<String> SCRIPT = List.of("SCRIPT_ENGINE_EVAL");
+    private static final List<String> ALL = List.of("RUNTIME_EXEC", "PROCESS_BUILDER_START", "DESERIALIZATION_RESOLVE_CLASS", "JNDI_LOOKUP", "SCRIPT_ENGINE_EVAL");
 
     private static final List<Entry> ENTRIES = List.of(
             new Entry("DANGEROUS_COMMAND_KEYWORD", "Dangerous command keyword",
@@ -69,6 +71,12 @@ public final class PolicyCatalog {
             new Entry("UNKNOWN_DESERIALIZATION_CLASS", "Unlisted deserialization class",
                     "The requested class is on neither list and is not a java., javax., or jdk. class.",
                     DESER, 40, "DeserializationClassRule"),
+            new Entry("UNSAFE_JNDI_PROTOCOL", "Dangerous JNDI protocol",
+                    "The JNDI lookup target uses a remote or untrusted protocol (ldap, rmi, dns, iiop, corbaname, http).",
+                    JNDI, 80, "JndiProtocolRule"),
+            new Entry("UNSAFE_SCRIPT_EVAL", "Dangerous script engine evaluation",
+                    "The script evaluated by ScriptEngine attempts process execution, reflection, or dangerous system calls.",
+                    SCRIPT, 80, "ScriptInjectionRule"),
             new Entry("UNKNOWN_EXTERNAL_LIBRARY_RATIO", "External libraries dominate the path",
                     "Frames from non-JDK, non-application code make up at least half of the recorded stack.",
                     ALL, 10, "ExternalLibraryRule"),

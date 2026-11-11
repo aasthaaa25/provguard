@@ -1,22 +1,23 @@
 # ProvGuard
 
-ProvGuard is a JDK 21 Java agent that monitors three high-risk APIs, records a `StackWalker` call-path trace, scores the call with deterministic rules, and can attach an Isolation Forest anomaly score. Monitor and Alert modes never stop the application. Block mode throws `ProvGuardBlockedException` only after a high-confidence rule match. A model score by itself never blocks. If the agent, the log, or the model fails, the target application continues.
+ProvGuard is a JDK 21 Java agent that monitors five high-risk API families (process execution, insecure deserialization, JNDI lookup, and script evaluation), records a `StackWalker` call-path trace, scores the call with deterministic rules, and attaches an Isolation Forest anomaly score. Monitor and Alert modes never stop the application. Block mode throws `ProvGuardBlockedException` only after a high-confidence rule match. A model score by itself never blocks. If the agent, the log, or the model fails, the target application continues.
 
 The call-path trace is a stack trace. It is not a provenance graph and it is not taint tracking.
 
 ## What is implemented
 
 - `premain` agent, shaded JAR, Byte Buddy advice
-- All `Runtime.exec` overloads, `ProcessBuilder.start`, and `ObjectInputStream.resolveClass`
+- All `Runtime.exec` overloads, `ProcessBuilder.start`, `ObjectInputStream.resolveClass`, `InitialContext.lookup`, and `AbstractScriptEngine.eval`
 - Call-path signature, SHA-256, argument length, and a 20-character redacted preview
-- Rule engine: keywords, command shape, long arguments, special characters, reflection, unknown path, frequency, deserialization allowlist and denylist, external frames, missing application frames
+- Rule engine: keywords, command shape, JNDI remote protocol detection, script injection patterns, long arguments, special characters, reflection, unknown path, frequency, deserialization allowlist and denylist, external frames, missing application frames
 - Monitor, Alert, and Block modes
 - ThreadLocal recursion guard, bounded queue, one background worker, JSONL log
 - Java Isolation Forest trained on benign BETH host logs from Kaggle, plus the recorded safe demo call paths, and packaged inside the agent
+- Interactive web dashboard (`provguard-web`) with real-time SSE telemetry, audit logs, and call-path visualization
 - Second-JVM integration tests and a measured startup / process-call report
 - Architecture, class, and sequence diagrams
 
-JNDI coverage, dashboards, ONNX, dynamic attach, taint tracking, and graph models are future work. See `docs/limitations.md`.
+ONNX runtime, dynamic attach, taint tracking, and graph models are future work. See `docs/limitations.md`.
 
 ## Requirements
 
@@ -40,6 +41,8 @@ The agent JAR is `provguard-agent\target\provguard-agent-1.0.0.jar`.
 .\scripts\run-demo.ps1 -Mode MONITOR -Demo safe
 .\scripts\run-demo.ps1 -Mode ALERT -Demo suspicious
 .\scripts\run-demo.ps1 -Mode BLOCK -Demo blocked
+.\scripts\run-demo.ps1 -Mode BLOCK -Demo jndi           # blocks untrusted JNDI lookup (Log4Shell)
+.\scripts\run-demo.ps1 -Mode BLOCK -Demo script         # blocks dangerous script execution
 ```
 
 Agent arguments are semicolon-separated:

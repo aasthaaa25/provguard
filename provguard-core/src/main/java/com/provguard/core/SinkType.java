@@ -14,7 +14,9 @@ public enum SinkType {
     public boolean mandatory() {
         return this == RUNTIME_EXEC
                 || this == PROCESS_BUILDER_START
-                || this == DESERIALIZATION_RESOLVE_CLASS;
+                || this == DESERIALIZATION_RESOLVE_CLASS
+                || this == JNDI_LOOKUP
+                || this == SCRIPT_ENGINE_EVAL;
     }
 
     public int encoded() {

@@ -38,6 +38,10 @@ public final class AgentInstaller {
                     "com.provguard.agent.advice.ProcessBuilderAdvice", "start", 0);
             installed += install(instrumentation, "ObjectInputStream.resolveClass", "java.io.ObjectInputStream",
                     "com.provguard.agent.advice.ResolveClassAdvice", "resolveClass", 1);
+            installed += install(instrumentation, "Context.lookup", "javax.naming.InitialContext",
+                    "com.provguard.agent.advice.JndiLookupAdvice", "lookup", 1);
+            installed += install(instrumentation, "ScriptEngine.eval", "javax.script.AbstractScriptEngine",
+                    "com.provguard.agent.advice.ScriptEngineAdvice", "eval", -1);
             if (installed > 0) {
                 System.out.println("ProvGuard installed sinks: " + installed);
                 System.out.println("ProvGuard Agent Started Successfully");
