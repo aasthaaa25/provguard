@@ -90,17 +90,40 @@ class ApiServerTest {
 
     @Test
     void dashboardRendersEventsAndFiltersWithoutClientCode() throws Exception {
-        var all = get("/");
+        var all = get("/telemetry");
         assertEquals(200, all.statusCode());
         assertTrue(all.headers().firstValue("Content-Type").orElseThrow().startsWith("text/html"));
         assertTrue(all.body().contains(ID1));
         assertTrue(all.body().contains(ID2));
         assertFalse(all.body().contains("<script"));
+        assertTrue(get("/").body().contains("Every call leaves"));
+        assertTrue(get("/team").body().contains("Aastha Tyagi"));
+        assertTrue(get("/team").body().contains("1024160040"));
+        assertTrue(get("/walkthrough").body().contains("Sequential.execute"));
+        assertTrue(get("/walkthrough").body().contains("Same job. Different route."));
+        assertTrue(get("/method").body().contains("What we took from VtPath"));
+        assertTrue(get("/engineering").body().contains("Case review workflow"));
+        assertTrue(get("/research").body().contains("Median job time"));
+        assertFalse(get("/").body().contains("Case review workflow"));
+        assertEquals(404, get("/telemetry/events/missing").statusCode());
+        assertEquals(404, get("/uneventful").statusCode());
+        assertEquals(308, get("/research/").statusCode());
 
-        var filtered = get("/?decision=ALERT");
+        var filtered = get("/telemetry?decision=ALERT");
         assertEquals(200, filtered.statusCode());
         assertFalse(filtered.body().contains(ID1));
         assertTrue(filtered.body().contains(ID2));
+
+        var live = get("/live?decision=ALERT");
+        assertEquals(200, live.statusCode());
+        assertEquals("SAMEORIGIN", live.headers().firstValue("X-Frame-Options").orElseThrow());
+        assertTrue(live.body().contains("http-equiv=\"refresh\" content=\"5\""));
+        assertFalse(live.body().contains(ID1));
+        assertTrue(live.body().contains(ID2));
+        assertTrue(get("/dashboard.css").headers().firstValue("Content-Type").orElseThrow().startsWith("text/css"));
+        assertTrue(get("/telemetry/events/" + ID2).body().contains("View full event record"));
+        assertEquals("/telemetry/events/" + ID2 + "?event=" + ID2,
+                get("/?event=" + ID2).headers().firstValue("Location").orElseThrow());
     }
 
     @Test

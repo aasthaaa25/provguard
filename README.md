@@ -25,7 +25,7 @@ java "-javaagent:provguard-agent/target/provguard-agent-1.0.0.jar=mode=BLOCK;eve
 java -jar provguard-web/target/provguard-web-1.0.0.jar --events events.jsonl
 ```
 
-Open [the local dashboard](http://127.0.0.1:8765/). Java renders the page and the event list updates on refresh. The read-only API retains its event stream, statistics, event details, and export. The script demo uses an inert Java engine to exercise a real JDK eval hook on stock Java 21.
+Open [the local dashboard](http://127.0.0.1:8765/) for the research showcase and event console. Enable **Auto-refresh every 5s** and apply the filters to refresh the event list while keeping the rest of the dashboard in place. Use `--demo` for labeled synthetic telemetry. The read-only API retains its event stream, statistics, event details, and export. The script demo uses an inert Java engine to exercise a real JDK eval hook on stock Java 21.
 
 ## Reproduce the research
 

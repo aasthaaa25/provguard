@@ -208,7 +208,7 @@ public final class EventParser {
      * The agent stores frames innermost first (index 0 is the monitored JDK method, the last element is the
      * outermost frame). The API returns them in execution order: entry first, sink last.
      */
-    private List<Map<String, Object>> executionOrderFrames(JsonNode root, EventSummary summary) {
+    List<Map<String, Object>> executionOrderFrames(JsonNode root, EventSummary summary) {
         List<String[]> raw = frames(root.get("callFrames"));
         JsonNode nodes = root.get("callFrames");
         String expectedSink = expectedSinkClass(summary.sinkType());

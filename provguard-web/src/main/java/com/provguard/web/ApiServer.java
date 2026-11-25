@@ -27,7 +27,7 @@ import java.util.concurrent.TimeUnit;
  * and the Host header is checked for loopback deployments.
  */
 public final class ApiServer implements AutoCloseable {
-    private static final String CSP = "default-src 'none'; script-src 'none'; connect-src 'self'; base-uri 'none'; "
+    private static final String CSP = "default-src 'none'; script-src 'none'; connect-src 'self'; style-src 'self'; frame-src 'self'; base-uri 'none'; "
             + "form-action 'self'; frame-ancestors 'none'";
     private static final int DEFAULT_LIMIT = 100;
     private static final int MAX_LIMIT = 500;
@@ -90,10 +90,13 @@ public final class ApiServer implements AutoCloseable {
             String path = exchange.getRequestURI().getRawPath();
             if (path.startsWith("/api/") || path.equals("/api")) {
                 api(exchange, stripTrailingSlash(path), parseQuery(exchange.getRequestURI().getRawQuery()));
-            } else if (path.equals("/") || path.equals("/index.html")) {
-                dashboard(exchange, parseQuery(exchange.getRequestURI().getRawQuery()));
+            } else if (path.equals("/live")) {
+                sendPage(exchange, DashboardPage.live(index, parseQuery(exchange.getRequestURI().getRawQuery())),
+                        "text/html; charset=utf-8", true);
+            } else if (path.equals("/dashboard.css")) {
+                sendPage(exchange, DashboardStyle.CSS, "text/css; charset=utf-8", false);
             } else {
-                error(exchange, 404, "not_found", "Not found.");
+                dashboard(exchange, path);
             }
         } catch (Throwable failure) {
             System.err.println("ProvGuard web: request failed: " + failure.getClass().getSimpleName());
@@ -316,19 +319,64 @@ public final class ApiServer implements AutoCloseable {
         }
     }
 
-    private void dashboard(HttpExchange exchange, Map<String, String> query) throws IOException {
-        byte[] body = DashboardPage.render(config, index, query).getBytes(StandardCharsets.UTF_8);
+    private void dashboard(HttpExchange exchange, String path) throws IOException {
+        String rawQuery = exchange.getRequestURI().getRawQuery();
+        var query = parseQuery(rawQuery);
+        String suffix = rawQuery == null ? "" : "?" + rawQuery;
+        boolean oldHome = path.equals("/") || path.equals("/index.html");
+        if (oldHome && (query.containsKey("event") || query.containsKey("live")
+                || query.containsKey("decision") || query.containsKey("q"))) {
+            String id = query.getOrDefault("event", "");
+            redirect(exchange, (EventParser.SAFE_ID.matcher(id).matches()
+                    ? "/telemetry/events/" + id : "/telemetry") + suffix);
+            return;
+        }
+        String canonical = path.equals("/index.html") ? "/" : stripTrailingSlash(path);
+        DashboardPage.Page page = DashboardPage.Page.at(canonical);
+        String event = null;
+        if (canonical.startsWith("/telemetry/events/")) {
+            event = canonical.substring("/telemetry/events/".length());
+            if (EventParser.SAFE_ID.matcher(event).matches() && index.find(event) != null) {
+                page = DashboardPage.Page.TELEMETRY;
+            }
+        }
+        if (page == null) {
+            sendPage(exchange, DashboardPage.missing(), "text/html; charset=utf-8", false, 404);
+        } else if (!path.equals(canonical)) {
+            redirect(exchange, canonical + suffix);
+        } else {
+            sendPage(exchange, DashboardPage.render(page, config, index, query, event), "text/html; charset=utf-8", false);
+        }
+    }
+
+    private static void redirect(HttpExchange exchange, String location) throws IOException {
+        securityHeaders(exchange.getResponseHeaders());
+        exchange.getResponseHeaders().set("Location", location);
+        exchange.sendResponseHeaders(308, -1);
+        exchange.close();
+    }
+
+    private void sendPage(HttpExchange exchange, String page, String contentType, boolean embedded) throws IOException {
+        sendPage(exchange, page, contentType, embedded, 200);
+    }
+
+    private void sendPage(HttpExchange exchange, String page, String contentType, boolean embedded, int status) throws IOException {
+        byte[] body = page.getBytes(StandardCharsets.UTF_8);
         Headers headers = exchange.getResponseHeaders();
         securityHeaders(headers);
-        headers.set("Content-Type", "text/html; charset=utf-8");
+        if (embedded) {
+            headers.set("Content-Security-Policy", CSP.replace("frame-ancestors 'none'", "frame-ancestors 'self'"));
+            headers.set("X-Frame-Options", "SAMEORIGIN");
+        }
+        headers.set("Content-Type", contentType);
         headers.set("Cache-Control", "no-store");
         if ("HEAD".equals(exchange.getRequestMethod())) {
             headers.set("Content-Length", String.valueOf(body.length));
-            exchange.sendResponseHeaders(200, -1);
+            exchange.sendResponseHeaders(status, -1);
             exchange.close();
             return;
         }
-        exchange.sendResponseHeaders(200, body.length);
+        exchange.sendResponseHeaders(status, body.length);
         try (OutputStream out = exchange.getResponseBody()) {
             out.write(body);
         }
