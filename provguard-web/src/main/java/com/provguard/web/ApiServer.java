@@ -6,7 +6,6 @@ import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
@@ -20,20 +19,16 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Pattern;
 
 /**
- * Read-only JSON API plus the static dashboard.
+ * Read-only JSON API plus the server-rendered dashboard.
  *
- * <p>Only GET and HEAD are accepted. Static files are served from the {@code /web} classpath folder through a
- * strict name whitelist; there is no filesystem access, shell access, or management endpoint. Responses carry a
- * restrictive Content-Security-Policy, and the Host header is checked so a web page on another origin cannot reach
- * the loopback service through DNS rebinding.
+ * <p>Only GET and HEAD are accepted. Responses carry a restrictive Content-Security-Policy
+ * and the Host header is checked for loopback deployments.
  */
 public final class ApiServer implements AutoCloseable {
-    private static final Pattern STATIC_PATH = Pattern.compile("/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*");
-    private static final String CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
-            + "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+    private static final String CSP = "default-src 'none'; script-src 'none'; connect-src 'self'; base-uri 'none'; "
+            + "form-action 'self'; frame-ancestors 'none'";
     private static final int DEFAULT_LIMIT = 100;
     private static final int MAX_LIMIT = 500;
     private static final int MAX_EXPORT = 100_000;
@@ -95,8 +90,10 @@ public final class ApiServer implements AutoCloseable {
             String path = exchange.getRequestURI().getRawPath();
             if (path.startsWith("/api/") || path.equals("/api")) {
                 api(exchange, stripTrailingSlash(path), parseQuery(exchange.getRequestURI().getRawQuery()));
+            } else if (path.equals("/") || path.equals("/index.html")) {
+                dashboard(exchange, parseQuery(exchange.getRequestURI().getRawQuery()));
             } else {
-                staticFile(exchange, path);
+                error(exchange, 404, "not_found", "Not found.");
             }
         } catch (Throwable failure) {
             System.err.println("ProvGuard web: request failed: " + failure.getClass().getSimpleName());
@@ -319,29 +316,12 @@ public final class ApiServer implements AutoCloseable {
         }
     }
 
-    private void staticFile(HttpExchange exchange, String rawPath) throws IOException {
-        String path = rawPath.equals("/") ? "/index.html" : rawPath;
-        if (!STATIC_PATH.matcher(path).matches() || path.contains("..")) {
-            error(exchange, 404, "not_found", "Not found.");
-            return;
-        }
-        String type = contentType(path);
-        if (type == null) {
-            error(exchange, 404, "not_found", "Not found.");
-            return;
-        }
-        byte[] body;
-        try (InputStream in = ApiServer.class.getResourceAsStream("/web" + path)) {
-            if (in == null) {
-                error(exchange, 404, "not_found", "Not found.");
-                return;
-            }
-            body = in.readAllBytes();
-        }
+    private void dashboard(HttpExchange exchange, Map<String, String> query) throws IOException {
+        byte[] body = DashboardPage.render(config, index, query).getBytes(StandardCharsets.UTF_8);
         Headers headers = exchange.getResponseHeaders();
         securityHeaders(headers);
-        headers.set("Content-Type", type);
-        headers.set("Cache-Control", "no-cache");
+        headers.set("Content-Type", "text/html; charset=utf-8");
+        headers.set("Cache-Control", "no-store");
         if ("HEAD".equals(exchange.getRequestMethod())) {
             headers.set("Content-Length", String.valueOf(body.length));
             exchange.sendResponseHeaders(200, -1);
@@ -352,22 +332,6 @@ public final class ApiServer implements AutoCloseable {
         try (OutputStream out = exchange.getResponseBody()) {
             out.write(body);
         }
-    }
-
-    private static String contentType(String path) {
-        if (path.endsWith(".html")) {
-            return "text/html; charset=utf-8";
-        }
-        if (path.endsWith(".css")) {
-            return "text/css; charset=utf-8";
-        }
-        if (path.endsWith(".js")) {
-            return "text/javascript; charset=utf-8";
-        }
-        if (path.endsWith(".svg")) {
-            return "image/svg+xml";
-        }
-        return null;
     }
 
     private void json(HttpExchange exchange, int status, Object body) throws IOException {

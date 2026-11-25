@@ -1,115 +1,73 @@
 # ProvGuard
 
-ProvGuard is a JDK 21 Java agent that monitors five high-risk API families (process execution, insecure deserialization, JNDI lookup, and script evaluation), records a `StackWalker` call-path trace, scores the call with deterministic rules, and attaches an Isolation Forest anomaly score. Monitor and Alert modes never stop the application. Block mode throws `ProvGuardBlockedException` only after a high-confidence rule match. A model score by itself never blocks. If the agent, the log, or the model fails, the target application continues.
+ProvGuard is a Java 21 runtime monitoring and research prototype. A Byte Buddy agent captures active JVM stack frames with StackWalker at selected API calls, evaluates deterministic rules, and records audit events. The bundled Java Isolation Forest provides advisory telemetry.
 
-The call-path trace is a stack trace. It is not a provenance graph and it is not taint tracking.
+The primary research reference is Feng et al., *Anomaly Detection Using Call Stack Information*, IEEE Symposium on Security and Privacy, 2003. Their detector extracts abstract paths from native return addresses. ProvGuard records JVM frames and evaluates the contribution of stack features in a controlled Java benchmark. [Paper](https://conferences.computer.org/sp/pdfs/sp/2003/03_02_02.pdf)
 
-## What is implemented
-
-- `premain` agent, shaded JAR, Byte Buddy advice
-- All `Runtime.exec` overloads, `ProcessBuilder.start`, `ObjectInputStream.resolveClass`, `InitialContext.lookup`, and `AbstractScriptEngine.eval`
-- Call-path signature, SHA-256, argument length, and a 20-character redacted preview
-- Rule engine: keywords, command shape, JNDI remote protocol detection, script injection patterns, long arguments, special characters, reflection, unknown path, frequency, deserialization allowlist and denylist, external frames, missing application frames
-- Monitor, Alert, and Block modes
-- ThreadLocal recursion guard, bounded queue, one background worker, JSONL log
-- Java Isolation Forest trained on benign BETH host logs from Kaggle, plus the recorded safe demo call paths, and packaged inside the agent
-- Interactive web dashboard (`provguard-web`) with real-time SSE telemetry, audit logs, and call-path visualization
-- Second-JVM integration tests and a measured startup / process-call report
-- Architecture, class, and sequence diagrams
-
-ONNX runtime, dynamic attach, taint tracking, and graph models are future work. See `docs/limitations.md`.
-
-## Requirements
-
-- JDK 21 or newer. This tree was built and run on JDK 26 with `--release 21`.
-- Maven 3.9 or newer
-
-## Build and test
-
-```powershell
-mvn test
-mvn verify
-```
-
-`mvn verify` runs the unit tests and launches a second JVM with `-javaagent` for the safe, alert, and block demos.
-
-The agent JAR is `provguard-agent\target\provguard-agent-1.0.0.jar`.
-
-## Run a demo
-
-```powershell
-.\scripts\run-demo.ps1 -Mode MONITOR -Demo safe
-.\scripts\run-demo.ps1 -Mode ALERT -Demo suspicious
-.\scripts\run-demo.ps1 -Mode BLOCK -Demo blocked
-.\scripts\run-demo.ps1 -Mode BLOCK -Demo jndi           # blocks untrusted JNDI lookup (Log4Shell)
-.\scripts\run-demo.ps1 -Mode BLOCK -Demo script         # blocks dangerous script execution
-```
-
-Agent arguments are semicolon-separated:
+## JavaFX case review
 
 ```text
--javaagent:provguard-agent\target\provguard-agent-1.0.0.jar=mode=BLOCK;events=events.jsonl;verbose=true
+mvn -pl provguard-desktop compile javafx:run
 ```
 
-## Machine learning
+Create and edit cases, import the agent's event log into SQLite, search the case list, and review recent actions. [UCS553 syllabus map and viva walkthrough](docs/java-syllabus-viva.md)
 
-The agent scores events with the Isolation Forest class `IsolationForestModel`. The packaged model is `provguard-ml/src/main/resources/com/provguard/ml/isolation-forest.json`. Retrain it with:
+## Build and demonstrate
 
-```powershell
-.\scripts\train-ml.ps1
-```
-
-Training uses the Kaggle BETH sample in `ml-training/data/beth-sample.csv`. Training families and test families do not overlap. Suspicious families are test-only. The evaluation write-up is `reports/ml-evaluation.md`.
-
-`mlUrl` is optional. When it is set, the agent asks that HTTP endpoint first and uses the packaged Java model if the endpoint is down. A missing model records `ML_UNAVAILABLE` and the rules decide.
-
-## Performance
-
-```powershell
-.\scripts\measure-performance.ps1
-```
-
-The script writes `reports/performance-results.md` from the runs on this machine. Use those numbers. Do not describe the overhead as low unless the report says so.
-
-## Blocking policy
-
-| Condition | Decision |
-| --- | --- |
-| Rule score >= 80 | Block in Block mode |
-| Rule score 60–79 and ML score >= 80 | Block in Block mode |
-| Rule score 30–79 without that ML confirmation | Alert |
-| ML score high and rule score below 60 | Alert, never block |
-| Rule score below 30 and ML score low | Allow |
-
-A confirmed block is thrown on the application thread before the monitored method runs. The background worker never throws it.
-
-## Web dashboard
-
-A browser dashboard reads the agent's `events.jsonl` through a small read-only Java service. It adds no second detector and never changes the agent. Full guide: [`docs/web-dashboard.md`](docs/web-dashboard.md).
-
-```powershell
-mvn -DskipTests package
-.\scripts\run-demo.ps1 -Mode ALERT -Demo suspicious     # writes events.jsonl
-.\scripts\run-dashboard.ps1                              # then open http://127.0.0.1:8765/
-.\scripts\run-dashboard.ps1 -Demo                        # labelled sample data, no agent needed
-```
-
-## Layout
+Use JDK 21 or newer and Maven 3.9 or newer. From the repository root:
 
 ```text
-provguard-core       domain model and safe argument metadata
-provguard-rules      deterministic rules and blocking policy
-provguard-storage    queue, worker, JSONL, CSV report
-provguard-ml         feature vector, Java Isolation Forest, optional REST client
-provguard-agent      premain, Byte Buddy advice, fast path
-provguard-web        read-only HTTP bridge and browser dashboard (plain HTML, CSS, JavaScript)
-provguard-demo-app   local echo and deserialization demos
-provguard-it         second-JVM agent tests
-docs                 architecture, diagrams, tests, limits
+mvn clean verify
+java "-javaagent:provguard-agent/target/provguard-agent-1.0.0.jar=mode=MONITOR;events=events.jsonl" -cp provguard-demo-app/target/provguard-demo-app-1.0.0.jar com.provguard.demo.safe.SafeDemoApplication
+java "-javaagent:provguard-agent/target/provguard-agent-1.0.0.jar=mode=ALERT;events=events.jsonl" -cp provguard-demo-app/target/provguard-demo-app-1.0.0.jar com.provguard.demo.suspicious.SuspiciousPathDemo
+java "-javaagent:provguard-agent/target/provguard-agent-1.0.0.jar=mode=BLOCK;events=events.jsonl" -cp provguard-demo-app/target/provguard-demo-app-1.0.0.jar com.provguard.demo.safe.DeserializationDemo blocked
+java "-javaagent:provguard-agent/target/provguard-agent-1.0.0.jar=mode=BLOCK;events=events.jsonl" -cp provguard-demo-app/target/provguard-demo-app-1.0.0.jar com.provguard.demo.safe.ScriptDemo blocked
+java -jar provguard-web/target/provguard-web-1.0.0.jar --events events.jsonl
 ```
 
-## Design
+Open [the local dashboard](http://127.0.0.1:8765/). Java renders the page and the event list updates on refresh. The read-only API retains its event stream, statistics, event details, and export. The script demo uses an inert Java engine to exercise a real JDK eval hook on stock Java 21.
 
-Strategy: `RuleBasedRiskAnalyzer`, `MlRiskAnalyzer`, and `HybridRiskAnalyzer`. Factory: `SecurityEventFactory`. Builder: `SecurityEvent.Builder`. Observer: JSONL writer, console reporter, and alert reporter.
+## Reproduce the research
 
-Diagrams: `docs/architecture.md`, `docs/class-diagram.md`, `docs/sequence-diagram.md`. Test mapping: `docs/test-cases.md`. Short explanation: `docs/viva-notes.md`.
+After building, run the ordered-path study with a fresh output directory. It launches 12 instrumented JVMs and writes logs, per-event predictions and a results table.
+
+```text
+java -cp provguard-agent/target/provguard-agent-1.0.0.jar com.provguard.agent.study.OrderedPathStudy provguard-agent/target/provguard-agent-1.0.0.jar provguard-demo-app/target/provguard-demo-app-1.0.0.jar ordered-study
+```
+
+To audit a particular application, collect logs from its known benign runs. Use one JVM run per file. The JVM agent's `appPackages` setting identifies the packages treated as application frames. Run the Java CLI from the repository root with your log paths:
+
+```text
+java -cp provguard-agent/target/provguard-agent-1.0.0.jar com.provguard.agent.study.OrderedPathProfile train profile.json benign.jsonl
+java -cp provguard-agent/target/provguard-agent-1.0.0.jar com.provguard.agent.study.OrderedPathProfile score profile.json evaluation.jsonl
+```
+
+The CLI reports baseline membership for each snapshot and consecutive same-thread transition. The audit reads logs offline and has no enforcement authority. For a quick demonstration after running the study, use `ordered-study/Cache-nominal.jsonl` for training and `ordered-study/Cache-sequence.jsonl` for scoring. Look for `KNOWN` snapshots with `UNSEEN_TRANSITION`.
+
+The prior class-policy study and BETH benchmark can be run separately:
+
+```text
+java -cp provguard-agent/target/provguard-agent-1.0.0.jar com.provguard.agent.study.StackStudy provguard-agent/target/provguard-agent-1.0.0.jar provguard-demo-app/target/provguard-demo-app-1.0.0.jar jvm-study-run
+java -cp provguard-agent/target/provguard-agent-1.0.0.jar com.provguard.ml.IsolationForestTrainer
+```
+
+The second command regenerates the separate BETH baseline report and packaged model source. [Research draft](docs/research-draft.md) · [Ordered path results](reports/jvm-ordered-path-study.md) · [Class-policy pilot](reports/jvm-stack-study.md) · [BETH baseline](reports/ml-evaluation.md)
+
+### Test released Java applications
+
+Build the project, then provide the directories of an Apache Ant installation and an Apache Maven installation. The measured study used Ant 1.10.18 and Maven 3.9.9. Use a fresh output directory and keep the machine otherwise idle during timing.
+
+```text
+java -cp provguard-agent/target/provguard-agent-1.0.0.jar com.provguard.agent.study.ExternalApplicationStudy provguard-agent/target/provguard-agent-1.0.0.jar provguard-demo-app/target/provguard-demo-app-1.0.0.jar ANT_HOME MAVEN_HOME external-study
+```
+
+Replace `ANT_HOME` and `MAVEN_HOME` with their installation paths and quote paths containing spaces. The Java harness generates the build configurations, primes Maven plugins using the configured Maven repositories, and runs Maven offline during evaluation. The child JVM inherits an explicitly configured Java trust store from the runner if one is needed. Outputs include the generated inputs, baseline profiles, agent logs, predictions, and timing samples. [External application study](reports/jvm-external-application-study.md)
+
+## Enforcement
+
+- Monitor and Alert modes allow the monitored call to proceed. Block mode can interrupt a call with a rule score of at least 80.
+- A rule score of 60–79 can enforce only when an explicitly configured ML endpoint confirms it with a score of at least 80 within the application-thread budget. The bundled BETH model has advisory authority only.
+- The audit field `enforced` records whether ProvGuard interrupted the call. Asynchronous scoring can indicate a hypothetical policy block.
+- ProvGuard monitors selected methods under Runtime, ProcessBuilder, ObjectInputStream, InitialContext and AbstractScriptEngine. Coverage depends on which methods the workload actually calls.
+
+The implementation and runnable study are Java. Maven XML is build configuration. The browser receives standard HTML generated by Java. [Architecture](docs/architecture.md) · [Dashboard](docs/web-dashboard.md)

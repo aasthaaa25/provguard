@@ -1,35 +1,7 @@
 # Architecture
 
-ProvGuard is a Java agent. The fast path runs on the application thread and can block only a confirmed rule match. Detailed logging and anomaly scoring run on one background worker.
+The Java premain entry point installs Byte Buddy advice for selected process, deserialization, JNDI and script API calls. The application thread collects StackWalker frames, builds redacted argument metadata and applies deterministic rules. A bounded queue passes telemetry to a background worker.
 
-```mermaid
-flowchart TD
-    app[Target Java application]
-    agent[ProvGuardAgent.premain]
-    buddy[Byte Buddy advice]
-    collector[StackWalker and safe metadata]
-    rules[Fast rule engine]
-    band{Block mode and rule score 60 to 79}
-    syncMl[Score model on the application thread]
-    queue[ArrayBlockingQueue]
-    worker[Background worker]
-    ml[Java Isolation Forest]
-    jsonl[events.jsonl]
+In Block mode, a rule score of at least 80 can interrupt the call immediately. For scores of 60–79, a separately configured ML endpoint can confirm enforcement with a score of at least 80. The application-thread request has a 200 ms budget. The worker preserves that decision and score in the audit record. The bundled Isolation Forest annotates telemetry without authorizing enforcement.
 
-    app --> buddy
-    agent --> buddy
-    buddy --> collector
-    collector --> rules
-    rules --> band
-    band -->|yes| syncMl
-    band -->|no| queue
-    syncMl -->|block when model score is at least 80| blocked[ProvGuardBlockedException]
-    syncMl --> queue
-    rules -->|rule score at least 80 in Block mode| blocked
-    queue --> worker
-    worker --> ml
-    worker --> jsonl
-    ml -->|unavailable| worker
-```
-
-The three instrumented methods are `Runtime.exec`, `ProcessBuilder.start`, and `ObjectInputStream.resolveClass`. A rule score of at least 80 can block on the application thread without waiting for the model. A rule score from 60 to 79 in Block mode scores the model on that same thread, with a 200 ms timeout, and blocks only when that score is at least 80. Every other event is queued, and the worker scores the model before writing the log. A stack trace from `StackWalker` is a call-path trace. It is not a provenance graph and it is not taint tracking.
+The log writer emits JSONL. The Java dashboard indexes those records, renders a browser view and exposes a read-only JSON API, exports and an event stream. The research runner fits separate evaluation models using collected JVM events.

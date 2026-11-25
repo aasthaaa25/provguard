@@ -2,8 +2,11 @@ package com.provguard.ml;
 
 import com.provguard.core.SecurityEvent;
 import com.provguard.core.SinkType;
+import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -25,6 +28,25 @@ class MlScorerTest {
         MlPredictionResult result = scorer.score(sample(), Duration.ofMillis(200));
         assertFalse(result.available());
         assertEquals("ML_UNAVAILABLE", result.modelStatus());
+    }
+
+    @Test
+    void outOfRangeEndpointResponseIsUnavailable() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/score", exchange -> {
+            byte[] body = "{\"mlScore\":101}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            try (var response = exchange.getResponseBody()) {
+                response.write(body);
+            }
+        });
+        server.start();
+        try {
+            MlScorer scorer = ResilientMlScorer.fromUrl("http://127.0.0.1:" + server.getAddress().getPort() + "/score");
+            assertFalse(scorer.score(sample(), Duration.ofSeconds(2)).available());
+        } finally {
+            server.stop(0);
+        }
     }
 
     @Test

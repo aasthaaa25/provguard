@@ -1,9 +1,9 @@
-# How to explain the project
+# Viva notes
 
-ProvGuard is a Java runtime security-monitoring agent. It instruments process execution and Java deserialization class resolution. On each monitored call it captures the current stack with `StackWalker`, builds a call-path signature, and stores a hash, a length, and a redacted preview of the argument.
+**Demonstration.** Build with `mvn clean verify`, show Monitor, Alert, and Block, then open a recorded event and point out the ordered Java frames and the `enforced` field.
 
-A rule engine scores known patterns: command keywords, reflection on the stack, repeated execution, and a deserialization allowlist and denylist. A Java Isolation Forest, trained on benign hosts from the Kaggle BETH dataset plus the safe demo call paths, adds an anomaly score inside the agent. Monitor and Alert modes never stop the application. Block mode throws `ProvGuardBlockedException` only when the rule score is at least 80, or when the rule score is 60 to 79 and the model score is at least 80. The model cannot block on its own.
+**Research question.** Can method order reveal changes invisible to the rules and aggregate stack counts? We hold argument hash, rule score and frame composition constant, then change the order. We also permute the sequence of individually familiar events so that only a transition-based model can see the change.
 
-If the agent, the model, or the log file fails, the target application continues.
+**Demo the important distinction.** Train the Java audit CLI on `Cache-nominal.jsonl` and score `Cache-sequence.jsonl`. `KNOWN` with `UNSEEN_TRANSITION` means that the individual stack is familiar and its transition from the previous stack is unfamiliar. [Commands](../README.md) · [Results](../reports/jvm-ordered-path-study.md)
 
-Advanced work that is intentionally not in this version: graph neural networks, full taint tracking, Soot or WALA call graphs, dynamic attach, JFR, and complete JNDI coverage.
+**Closest paper.** Feng et al. use native return addresses and program counters. Our JVM adaptation compares entry and exit suffixes of adjacent method stacks captured at selected JDK APIs. An unusual path is advisory evidence. Benign code changes can trigger it, as the drift experiment demonstrates. [Primary paper](https://conferences.computer.org/sp/pdfs/sp/2003/03_02_02.pdf)

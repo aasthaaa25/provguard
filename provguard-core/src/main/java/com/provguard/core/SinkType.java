@@ -2,7 +2,6 @@ package com.provguard.core;
 
 /**
  * High-risk Java API families ProvGuard knows how to describe.
- * Only the first three values are monitored in this version.
  */
 public enum SinkType {
     RUNTIME_EXEC,

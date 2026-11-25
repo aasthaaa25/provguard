@@ -13,6 +13,7 @@ import com.provguard.ml.MlPredictionResult;
 import com.provguard.ml.MlScorer;
 import com.provguard.ml.ResilientMlScorer;
 import com.provguard.rules.HybridRiskAnalyzer;
+import com.provguard.rules.BlockingPolicy;
 import com.provguard.rules.PathFrequencyRule;
 import com.provguard.rules.RiskRules;
 import com.provguard.rules.RuleBasedRiskAnalyzer;
@@ -43,6 +44,7 @@ public final class EventPipeline implements AutoCloseable {
     private final HybridRiskAnalyzer hybrid = new HybridRiskAnalyzer();
     private final FeatureExtractor features = new FeatureExtractor();
     private final MlScorer mlScorer;
+    private final MlScorer enforcementScorer;
     private final EventQueue queue;
     private final EventStatistics statistics = new EventStatistics();
     private final SecurityEventWorker worker;
@@ -81,6 +83,7 @@ public final class EventPipeline implements AutoCloseable {
         this.ruleAnalyzer = ruleAnalyzer;
         this.queue = queue;
         this.mlScorer = ResilientMlScorer.create(config.mlUrl());
+        this.enforcementScorer = ResilientMlScorer.fromUrl(config.mlUrl());
         SecurityEventWorker created = new SecurityEventWorker(queue, this::enrich, observers, statistics);
         this.worker = created;
         created.start();
@@ -160,10 +163,8 @@ public final class EventPipeline implements AutoCloseable {
         SecurityEvent event = create(sinkType, sinkMethod, snapshot, stack, frequency);
         RiskResult rules = ruleAnalyzer.analyze(event);
         MlPredictionResult ml = MlPredictionResult.unavailable("Scored asynchronously");
-        if (config.mode() == com.provguard.core.AgentMode.BLOCK
-                && rules.ruleScore() >= 60
-                && rules.ruleScore() <= 79) {
-            ml = score(event, rules.ruleScore(), Duration.ofMillis(200));
+        if (requiresSynchronousScore(rules.ruleScore())) {
+            ml = score(enforcementScorer, event, rules.ruleScore(), Duration.ofMillis(200));
         }
         String status = ml.available() ? "AVAILABLE" : "ML_UNAVAILABLE";
         RiskResult decision = hybrid.combine(rules, ml.available() ? ml.score() : null, status, config.mode());
@@ -190,7 +191,10 @@ public final class EventPipeline implements AutoCloseable {
     }
 
     private RiskResult enrich(SecurityEvent event, RiskResult fastResult) {
-        MlPredictionResult ml = score(event, fastResult.ruleScore(), Duration.ofMillis(500));
+        if (requiresSynchronousScore(fastResult.ruleScore())) {
+            return fastResult;
+        }
+        MlPredictionResult ml = score(mlScorer, event, fastResult.ruleScore(), Duration.ofMillis(500));
         String status = ml.available() ? "AVAILABLE" : "ML_UNAVAILABLE";
         RiskResult combined = hybrid.combine(
                 fastResult,
@@ -200,10 +204,17 @@ public final class EventPipeline implements AutoCloseable {
         return combined.withEnforced(fastResult.enforced());
     }
 
-    private MlPredictionResult score(SecurityEvent event, int ruleScore, Duration timeout) {
+    private boolean requiresSynchronousScore(int ruleScore) {
+        return config.mode() == com.provguard.core.AgentMode.BLOCK
+                && config.mlUrl() != null
+                && ruleScore >= BlockingPolicy.HIGH_RULE_SCORE
+                && ruleScore < BlockingPolicy.CRITICAL_RULE_SCORE;
+    }
+
+    private MlPredictionResult score(MlScorer scorer, SecurityEvent event, int ruleScore, Duration timeout) {
         try {
             FeatureVector vector = features.extract(event, ruleScore);
-            return mlScorer.score(vector, timeout);
+            return scorer.score(vector, timeout);
         } catch (Throwable failure) {
             return MlPredictionResult.unavailable(failure.getMessage());
         }

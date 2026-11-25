@@ -1,36 +1,8 @@
-# Sequence: monitored process start
+# Runtime event sequence
 
-```mermaid
-sequenceDiagram
-    participant App
-    participant Advice
-    participant Pipeline
-    participant Rules
-    participant Model
-    participant Queue
-    participant Worker
-
-    App->>Advice: ProcessBuilder.start()
-    Advice->>Pipeline: onProcessBuilderStart
-    Pipeline->>Pipeline: recursion guard and StackWalker
-    Pipeline->>Rules: deterministic rules
-    alt Block mode and rule score >= 80
-        Pipeline-->>App: ProvGuardBlockedException
-    else Block mode and rule score 60 to 79
-        Pipeline->>Model: score with a 200 ms timeout
-        alt model score >= 80
-            Pipeline-->>App: ProvGuardBlockedException
-        else otherwise
-            Pipeline->>Queue: offer event
-            Pipeline-->>App: return, method continues
-        end
-    else otherwise
-        Pipeline->>Queue: offer event
-        Pipeline-->>App: return, method continues
-    end
-    Worker->>Queue: take event
-    Worker->>Model: ML score or ML_UNAVAILABLE
-    Worker->>Worker: append events.jsonl
-```
-
-The synchronous model call happens only for the 60–79 band in Block mode. Other events are scored on the worker before they are written. The background worker never throws `ProvGuardBlockedException`. If the queue is full, the event is dropped and the application continues.
+1. Byte Buddy advice calls the runtime bridge when a monitored JDK API is entered.
+2. The application thread collects stack frames and argument metadata, then computes the rule score.
+3. In Block mode, a rule score of at least 80 is enforceable. A score from 60 through 79 requires confirmation from a configured ML endpoint.
+4. The application thread queues the event. It throws the block exception if enforcement was selected.
+5. The worker preserves the synchronous decision or enriches the event asynchronously, then writes the audit record.
+6. The optional dashboard reads and presents recorded outcomes.

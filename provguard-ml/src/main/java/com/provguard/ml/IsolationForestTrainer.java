@@ -68,7 +68,7 @@ public final class IsolationForestTrainer {
         if (trainFamilies.stream().anyMatch(testFamilies::contains)) {
             throw new IllegalStateException("A call-path family is in both train and test");
         }
-        IsolationForestModel model = IsolationForestModel.fit(benign, new java.util.Random(42));
+        IsolationForestModel model = IsolationForestModel.fit(benign, random);
         double benignSum = 0;
         double suspiciousSum = 0;
         int benignCount = 0;
@@ -97,10 +97,13 @@ public final class IsolationForestTrainer {
         }
         double recall = suspiciousCount == 0 ? 0 : (double) truePositive / suspiciousCount;
         double falsePositiveRate = benignCount == 0 ? 0 : (double) falsePositive / benignCount;
-        String report = """
+        int flagged = truePositive + falsePositive;
+        double precision = flagged == 0 ? 0 : (double) truePositive / flagged;
+        double f1 = precision + recall == 0 ? 0 : 2 * precision * recall / (precision + recall);
+        String report = String.format(Locale.ROOT, """
                 # Isolation Forest evaluation
 
-                The model is a Java Isolation Forest trained on benign rows from the BETH host-log dataset published on Kaggle as `katehighnam/beth-dataset` (https://www.kaggle.com/datasets/katehighnam/beth-dataset). Training rows are `sus=0` and `evil=0` process events. The test set holds out other benign hosts plus `evil=1` events that were never shown to the model. The four safe call shapes recorded from the ProvGuard demos are included in training so those JVM stacks stay in the benign region.
+                The Java Isolation Forest is trained on benign rows drawn from `katehighnam/beth-dataset` and four repeated benign JVM demo vectors. Test rows come from BETH families excluded from training. The host field can overlap across splits.
 
                 The `evil` and `sus` columns are labels only. Features are the stack-address list, userspace pointer count, other stack entries, argument-value length, distinct argument names, event name, return value, user id, and process name.
 
@@ -110,20 +113,22 @@ public final class IsolationForestTrainer {
                 - Test families: %s
                 - Mean score on held-out benign rows: %.1f
                 - Mean score on suspicious rows: %.1f
-                - Recall at score 80: %.2f
-                - False positive rate at score 80: %.2f
+                - Recall at score 80: %.2f%% (%d/%d)
+                - False positive rate at score 80: %.2f%% (%d/%d)
+                - Precision at score 80: %.2f%% (%d/%d)
+                - F1 at score 80: %.2f%%
 
-                A high anomaly score alerts. It does not block unless the deterministic rule score is already in the high band.
-
-                These figures describe this BETH sample and the recorded safe demo shapes. They are not a claim about zero-day detection or about every Java attack.
-                """.formatted(
+                The test measures ranking on this Linux host-log sample. Its inputs are proxies for JVM features. The bundled model provides advisory telemetry and cannot authorize an enforced block.
+                """,
                 benignCount + suspiciousCount,
                 String.join(", ", trainFamilies),
                 String.join(", ", testFamilies),
                 benignCount == 0 ? 0 : benignSum / benignCount,
                 suspiciousCount == 0 ? 0 : suspiciousSum / suspiciousCount,
-                recall,
-                falsePositiveRate);
+                recall * 100, truePositive, suspiciousCount,
+                falsePositiveRate * 100, falsePositive, benignCount,
+                precision * 100, truePositive, flagged,
+                f1 * 100);
         return new Result(model, csv(rows), report, recall, falsePositiveRate,
                 benignCount == 0 ? 0 : benignSum / benignCount,
                 suspiciousCount == 0 ? 0 : suspiciousSum / suspiciousCount);

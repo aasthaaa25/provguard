@@ -47,6 +47,16 @@ class AgentAttachmentIT {
         assertTrue(run.events.contains("BlockedDemoObject"), run.events);
     }
 
+    @Test
+    void stockJdkScriptFixtureExercisesTheEvalHook() throws Exception {
+        Run run = launch("BLOCK", "com.provguard.demo.safe.ScriptDemo", "blocked");
+        assertEquals(0, run.exitCode, run.output);
+        assertTrue(run.output.contains("ProvGuard blocked script evaluation"), run.output);
+        assertFalse(run.output.contains("Script fixture reached the engine"), run.output);
+        assertTrue(run.events.contains("\"sinkType\":\"SCRIPT_ENGINE_EVAL\""), run.events);
+        assertTrue(run.events.contains("\"enforced\":true"), run.events);
+    }
+
     private static Run launch(String mode, String main, String... args) throws Exception {
         Path agent = Path.of(System.getProperty("provguard.it.agentJar"));
         Path demo = Path.of(System.getProperty("provguard.it.demoJar"));

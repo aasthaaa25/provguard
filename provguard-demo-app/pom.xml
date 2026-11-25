@@ -10,4 +10,11 @@
     </parent>
     <artifactId>provguard-demo-app</artifactId>
     <name>ProvGuard Demo Application</name>
+    <dependencies>
+        <dependency>
+            <groupId>com.provguard</groupId>
+            <artifactId>provguard-core</artifactId>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
 </project>

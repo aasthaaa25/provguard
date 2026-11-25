@@ -13,3 +13,5 @@ ml-training/data/*.csv
 !ml-training/data/beth-sample.csv
 dist/
 .DS_Store
+/provguard-review.sqlite*
+/provguard-desktop/provguard-review.sqlite*

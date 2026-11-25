@@ -33,10 +33,17 @@ public final class RestMlScorer implements MlScorer {
                 throw new ModelUnavailableException("ML service returned HTTP " + response.statusCode());
             }
             JsonNode node = mapper.readTree(response.body());
-            int score = node.path("mlScore").asInt(0);
-            return MlPredictionResult.available(score, "REST");
+            JsonNode score = node == null ? null : node.get("mlScore");
+            if (score == null || !score.isIntegralNumber() || !score.canConvertToInt()
+                    || score.intValue() < 0 || score.intValue() > 100) {
+                throw new ModelUnavailableException("ML service must return an integer mlScore from 0 to 100");
+            }
+            return MlPredictionResult.available(score.intValue(), "REST");
         } catch (ModelUnavailableException exception) {
             throw exception;
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new ModelUnavailableException("ML request was interrupted", exception);
         } catch (Exception exception) {
             throw new ModelUnavailableException("ML service is unavailable", exception);
         }

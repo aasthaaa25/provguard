@@ -24,7 +24,7 @@ public final class ModelInfo {
         out.put("packaged", packaged());
         out.put("scoreMeaning", "A 0-100 anomaly score. The raw Isolation Forest score is rescaled so the 5th percentile of benign training "
                 + "rows maps to 0 and the 99th percentile to 100. It is a score, not a probability of attack.");
-        out.put("liveScoringNote", "Live scoring is done by the agent. The rule score decides blocking; a high model score alone alerts and never blocks.");
+        out.put("liveScoringNote", "The bundled model provides advisory telemetry. Only a separately configured ML endpoint can confirm a 60–79 rule score for enforcement.");
         out.put("evaluation", evaluation(reportsDir));
         return out;
     }
@@ -60,7 +60,7 @@ public final class ModelInfo {
         Map<String, Object> out = new LinkedHashMap<>();
         Path file = reportsDir == null ? null : reportsDir.resolve("ml-evaluation.md");
         out.put("source", "reports/ml-evaluation.md");
-        out.put("scope", "Offline evaluation on the BETH sample plus recorded safe demo shapes. It is not a measure of live detection.");
+        out.put("scope", "Offline evaluation on held-out BETH host-log families. Training includes four benign JVM demo shapes.");
         if (file == null || !Files.isRegularFile(file)) {
             out.put("available", false);
             out.put("detail", "ml-evaluation.md was not found. Start the dashboard from the repository root or pass --reports <dir>.");

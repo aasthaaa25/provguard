@@ -1,37 +1,46 @@
 package com.provguard.demo.safe;
 
-import com.provguard.core.exception.ProvGuardBlockedException;
-import javax.script.ScriptEngine;
-import javax.script.ScriptEngineManager;
+import javax.script.AbstractScriptEngine;
+import javax.script.Bindings;
+import javax.script.ScriptContext;
+import javax.script.ScriptEngineFactory;
+import javax.script.SimpleBindings;
+import java.io.Reader;
 
+/** Exercises the JDK's concrete eval overload with inert fixtures on a stock JDK. */
 public final class ScriptDemo {
-    public static void main(String[] args) {
-        boolean triggerBlock = args.length > 0 && "blocked".equalsIgnoreCase(args[0]);
-        System.out.println("Starting ScriptEngine Demo (triggerBlock=" + triggerBlock + ")");
+    private ScriptDemo() {}
+
+    public static void main(String[] args) throws Exception {
+        boolean blockFixture = args.length == 1 && "blocked".equals(args[0]);
+        String fixture = blockFixture ? "runtime fixture" : "1 + 2";
         try {
-            ScriptEngineManager manager = new ScriptEngineManager();
-            ScriptEngine engine = manager.getEngineByName("JavaScript");
-            if (triggerBlock) {
-                System.out.println("Attempting unsafe script eval: java.lang.Runtime.getRuntime().exec('calc')");
-                if (engine != null) {
-                    engine.eval("java.lang.Runtime.getRuntime().exec('calc')");
-                } else {
-                    // Fallback to direct simulated eval invocation
-                    System.out.println("ScriptEngine simulated: java.lang.Runtime.getRuntime().exec('calc')");
-                }
-            } else {
-                System.out.println("Attempting safe script eval: 1 + 2");
-                if (engine != null) {
-                    Object res = engine.eval("1 + 2");
-                    System.out.println("Safe script result: " + res);
-                } else {
-                    System.out.println("ScriptEngine safe eval simulation completed.");
-                }
-            }
-        } catch (ProvGuardBlockedException blocked) {
+            Object result = new FixtureEngine().eval(fixture);
+            System.out.println("Script fixture reached the engine: " + result);
+        } catch (com.provguard.core.exception.ProvGuardBlockedException blocked) {
             System.out.println("ProvGuard blocked script evaluation: " + blocked.getMessage());
-        } catch (Throwable error) {
-            System.out.println("Script call completed with: " + error.getMessage());
+        }
+    }
+
+    private static final class FixtureEngine extends AbstractScriptEngine {
+        @Override
+        public Object eval(String script, ScriptContext context) {
+            return "1 + 2".equals(script) ? 3 : "inert policy fixture";
+        }
+
+        @Override
+        public Object eval(Reader reader, ScriptContext context) {
+            throw new UnsupportedOperationException("The fixture accepts String input");
+        }
+
+        @Override
+        public Bindings createBindings() {
+            return new SimpleBindings();
+        }
+
+        @Override
+        public ScriptEngineFactory getFactory() {
+            throw new UnsupportedOperationException("The fixture is constructed directly");
         }
     }
 }

@@ -89,6 +89,21 @@ class ApiServerTest {
     }
 
     @Test
+    void dashboardRendersEventsAndFiltersWithoutClientCode() throws Exception {
+        var all = get("/");
+        assertEquals(200, all.statusCode());
+        assertTrue(all.headers().firstValue("Content-Type").orElseThrow().startsWith("text/html"));
+        assertTrue(all.body().contains(ID1));
+        assertTrue(all.body().contains(ID2));
+        assertFalse(all.body().contains("<script"));
+
+        var filtered = get("/?decision=ALERT");
+        assertEquals(200, filtered.statusCode());
+        assertFalse(filtered.body().contains(ID1));
+        assertTrue(filtered.body().contains(ID2));
+    }
+
+    @Test
     void eventsListFiltersAndPaginates() throws Exception {
         JsonNode all = json("/api/events");
         assertEquals(2, all.get("totalMatching").asInt());
@@ -141,14 +156,14 @@ class ApiServerTest {
     }
 
     @Test
-    void staticServerOnlyServesWhitelistedBundledFilesAndAddsSecurityHeaders() throws Exception {
+    void serverRejectsUnknownPathsAndAddsSecurityHeaders() throws Exception {
         for (String path : new String[] {"/../pom.xml", "/%2e%2e/%2e%2e/etc/passwd", "/com/provguard/web/WebMain.class", "/js/..%2f..%2fx"}) {
             assertEquals(404, get(path).statusCode(), path);
         }
         assertEquals(404, raw("GET /../../etc/passwd HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").contains("404") ? 404 : 0);
         HttpResponse<String> health = get("/api/health");
         String csp = health.headers().firstValue("Content-Security-Policy").orElse("");
-        assertTrue(csp.contains("default-src 'none'") && csp.contains("script-src 'self'"));
+        assertTrue(csp.contains("default-src 'none'") && csp.contains("script-src 'none'"));
         assertEquals("nosniff", health.headers().firstValue("X-Content-Type-Options").orElse(""));
         assertTrue(health.headers().firstValue("Access-Control-Allow-Origin").isEmpty());
     }

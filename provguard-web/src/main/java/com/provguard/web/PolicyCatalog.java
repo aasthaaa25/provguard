@@ -153,6 +153,7 @@ public final class PolicyCatalog {
         thresholds.put("mediumRuleScore", BlockingPolicy.MEDIUM_RULE_SCORE);
         thresholds.put("highMlScore", BlockingPolicy.HIGH_ML_SCORE);
         out.put("thresholds", thresholds);
+        out.put("enforcementNote", "Scores from 60 to 79 require confirmation from a configured ML endpoint for enforcement. The bundled model is advisory.");
 
         List<Map<String, Object>> levels = new ArrayList<>();
         for (RiskLevel level : RiskLevel.values()) {
