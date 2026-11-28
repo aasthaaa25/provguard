@@ -35,7 +35,7 @@ public final class SseHub implements EventLogIndex.Listener {
     private final Set<Client> clients = ConcurrentHashMap.newKeySet();
 
     /** Returns null when the client limit is reached. */
-    public Client register() {
+    public synchronized Client register() {
         if (clients.size() >= MAX_CLIENTS) {
             return null;
         }

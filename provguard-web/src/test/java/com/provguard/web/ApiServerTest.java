@@ -79,6 +79,29 @@ class ApiServerTest {
     }
 
     @Test
+    void preferencesRequireSameOriginAndPersistOnlyValidatedChoices() throws Exception {
+        assertEquals(403, submitSettings("http://example.invalid", "theme=aurora&motion=reduce").statusCode());
+        assertEquals(400, submitSettings(base, "theme=invalid&motion=reduce").statusCode());
+        var response = submitSettings(base, "theme=aurora&motion=reduce");
+        assertEquals(303, response.statusCode());
+        assertEquals("/settings?saved=1", response.headers().firstValue("Location").orElseThrow());
+        String cookie = response.headers().firstValue("Set-Cookie").orElseThrow().split(";", 2)[0];
+        var request = HttpRequest.newBuilder(URI.create(base + "/settings?saved=1")).header("Cookie", cookie).build();
+        var settings = http.send(request, HttpResponse.BodyHandlers.ofString()).body();
+        assertTrue(settings.contains("workspace theme-aurora reduce-motion"));
+        assertTrue(settings.contains("Preferences saved."));
+        assertTrue(submitSettings(base, "action=reset").headers().firstValue("Set-Cookie").orElseThrow()
+                .startsWith("provguard_view=violet:system;"));
+    }
+
+    private HttpResponse<String> submitSettings(String origin, String form) throws Exception {
+        var request = HttpRequest.newBuilder(URI.create(base + "/settings"))
+                .header("Origin", origin).header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(HttpRequest.BodyPublishers.ofString(form)).build();
+        return http.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
+    @Test
     void healthSeparatesBackendFromAgentAndNeverClaimsTheAgentRuns() throws Exception {
         JsonNode health = json("/api/health");
         assertEquals("up", health.at("/backend/status").asText());
@@ -96,9 +119,14 @@ class ApiServerTest {
         assertTrue(all.body().contains(ID1));
         assertTrue(all.body().contains(ID2));
         assertFalse(all.body().contains("<script"));
-        assertTrue(get("/").body().contains("Every call leaves"));
-        assertTrue(get("/team").body().contains("Aastha Tyagi"));
-        assertTrue(get("/team").body().contains("1024160040"));
+        var overview = get("/").body();
+        assertTrue(overview.contains("JVM activity, in view."));
+        assertTrue(overview.contains("Recent events"));
+        assertTrue(overview.contains(ID2));
+        assertTrue(get("/capture").body().contains("SafeDemoApplication"));
+        String team = get("/team").body();
+        assertTrue(team.contains("Aastha Tyagi"));
+        assertTrue(team.contains("Namrata Aneja</h3><p>Roll no. 1024160040"));
         assertTrue(get("/walkthrough").body().contains("Sequential.execute"));
         assertTrue(get("/walkthrough").body().contains("Same job. Different route."));
         assertTrue(get("/method").body().contains("What we took from VtPath"));
@@ -124,6 +152,46 @@ class ApiServerTest {
         assertTrue(get("/telemetry/events/" + ID2).body().contains("View full event record"));
         assertEquals("/telemetry/events/" + ID2 + "?event=" + ID2,
                 get("/?event=" + ID2).headers().firstValue("Location").orElseThrow());
+    }
+
+    @Test
+    void captureWalkthroughLinksToRecordedMonitorEvents() throws Exception {
+        String eventId = "startup-check-example";
+        var event = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(Samples.line(eventId,
+                "2026-10-24T10:01:00Z", "PROCESS_BUILDER_START", "ALERT", "ALERT", false, "MONITOR", 35, 50));
+        event.put("pathSignature", "SafeDemoApplication>ProcessExecutionDemo>ProcessBuilder.start");
+        Files.writeString(log, event + "\n", StandardOpenOption.APPEND);
+        index.poll();
+
+        String capture = get("/capture").body();
+        assertTrue(capture.contains("Captured Java evidence"));
+        assertTrue(capture.contains("/telemetry/events/" + eventId));
+        assertFalse(capture.contains("/telemetry/events/" + ID2));
+        String detail = get("/telemetry/events/" + eventId + "?q=SafeDemoApplication&mode=MONITOR").body();
+        assertTrue(detail.contains("href=\"/telemetry?q=SafeDemoApplication&amp;decision=&amp;mode=MONITOR\""));
+    }
+
+    @Test
+    void eventDetailReturnsToTheSameOlderFilteredPage() throws Exception {
+        StringBuilder rows = new StringBuilder();
+        for (int i = 3; i <= 35; i++) {
+            rows.append(Samples.line("older-page-" + i, "2026-10-24T10:01:00Z", "PROCESS_BUILDER_START",
+                    "ALERT", "ALERT", false, "ALERT", 35, 50)).append('\n');
+        }
+        Files.writeString(log, rows, StandardOpenOption.APPEND);
+        index.poll();
+        var firstPage = get("/telemetry?decision=ALERT").body();
+        var olderLink = java.util.regex.Pattern.compile("href=\"(/telemetry\\?[^\"]*before=[0-9]+)\"")
+                .matcher(firstPage);
+        assertTrue(olderLink.find());
+        String olderUrl = olderLink.group(1).replace("&amp;", "&");
+        String olderPage = get(olderUrl).body();
+        var eventHref = java.util.regex.Pattern.compile("href=\"(/telemetry/events/" + ID2 + "[^\"]*)\"")
+                .matcher(olderPage);
+        assertTrue(eventHref.find());
+        assertTrue(get(eventHref.group(1).replace("&amp;", "&")).body()
+                .contains("href=\"" + olderLink.group(1) + "\">Back to event console"));
+        assertFalse(olderPage.contains(ID1));
     }
 
     @Test
@@ -234,6 +302,39 @@ class ApiServerTest {
         assertTrue(hello);
         assertEquals(1, seen);
         response.body().close();
+    }
+
+    @Test
+    void streamHeadReturnsHeadersWithoutOpeningAClient() throws Exception {
+        var request = HttpRequest.newBuilder(URI.create(base + "/api/stream"))
+                .method("HEAD", HttpRequest.BodyPublishers.noBody()).timeout(Duration.ofSeconds(3)).build();
+        var response = http.send(request, HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, response.statusCode());
+        assertTrue(response.headers().firstValue("Content-Type").orElseThrow().startsWith("text/event-stream"));
+        assertEquals("", response.body());
+        assertEquals(0, hub.clientCount());
+    }
+
+    @Test
+    void replayGapIsAnnouncedInsteadOfSilentlySkippingEvents() throws Exception {
+        StringBuilder rows = new StringBuilder();
+        for (int i = 0; i < 501; i++) {
+            rows.append(Samples.line("replay-" + i, "2026-10-24T10:01:00Z", "PROCESS_BUILDER_START",
+                    "ALERT", "ALERT", false, "ALERT", 35, 50)).append('\n');
+        }
+        Files.writeString(log, rows, StandardOpenOption.APPEND);
+        index.poll();
+        var request = HttpRequest.newBuilder(URI.create(base + "/api/stream")).header("Last-Event-ID", "2")
+                .timeout(Duration.ofSeconds(5)).build();
+        var response = http.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        try (var reader = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
+            assertEquals("event: hello", reader.readLine());
+            assertTrue(reader.readLine().startsWith("data: "));
+            assertEquals("", reader.readLine());
+            assertEquals("id: 503", reader.readLine());
+            assertEquals("event: reset", reader.readLine());
+            assertTrue(reader.readLine().contains("replay_gap"));
+        }
     }
 
     @Test

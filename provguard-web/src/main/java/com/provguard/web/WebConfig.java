@@ -37,6 +37,7 @@ public record WebConfig(
                   --port <port>          Bind port (default: 8765, 0 picks a free port)
                   --allow-remote         Required to bind a non-loopback address. Not recommended.
                   --demo                 Serve clearly labelled synthetic events instead of the real log
+                  --viva                 Enable the fixed Java experiment on the local dashboard
                   --max-events <n>       Most recent events kept in the in-memory index (default: 50000)
                   --poll-ms <n>          Log polling interval in milliseconds (default: 1000)
                   --active-window <sec>  Seconds of log silence before the agent shows as idle (default: 300)

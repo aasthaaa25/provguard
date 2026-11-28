@@ -362,6 +362,11 @@ public final class EventLogIndex implements AutoCloseable {
         return nextSeq;
     }
 
+    synchronized boolean replayCursorExpired(long cursor, long replayEpoch) {
+        return replayEpoch != epoch || ((evicted > 0 || resets > 0)
+                && (items.isEmpty() ? cursor < nextSeq : cursor < items.getFirst().seq() - 1));
+    }
+
     /** A copy of the indexed summaries, oldest first. */
     public synchronized List<EventSummary> snapshot() {
         return new ArrayList<>(items);
@@ -416,6 +421,9 @@ public final class EventLogIndex implements AutoCloseable {
             file.readFully(data);
         } catch (java.io.FileNotFoundException exception) {
             throw new SourceChanged("The log file is not available");
+        }
+        if (EventParser.checksum(data, data.length) != summary.lineChecksum()) {
+            throw new SourceChanged("The log changed since this event was indexed");
         }
         try {
             JsonNode root = parser.readTree(data, data.length);

@@ -171,6 +171,19 @@ class EventLogIndexTest {
     }
 
     @Test
+    void rewritingARecordWithTheSameIdDoesNotReturnStaleDetails() throws Exception {
+        Path file = dir.resolve("rewrite.jsonl");
+        String original = ev(1, "ALLOW") + "\n" + ev(2, "ALERT") + "\n";
+        append(file, original);
+        EventLogIndex index = new EventLogIndex(file, 1000, 1000);
+        index.poll();
+        EventSummary second = index.latest();
+        Files.writeString(file, ev(1, "ALLOW") + "\n" + ev(2, "ALLOW") + "\n");
+        assertEquals(original.getBytes(StandardCharsets.UTF_8).length, Files.size(file));
+        assertThrows(EventLogIndex.SourceChanged.class, () -> index.readRecord(second));
+    }
+
+    @Test
     void queryFiltersAndPagesNewestFirst() throws IOException {
         Path file = dir.resolve("q.jsonl");
         StringBuilder sb = new StringBuilder();

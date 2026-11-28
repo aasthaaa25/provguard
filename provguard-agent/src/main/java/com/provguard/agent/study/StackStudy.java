@@ -122,13 +122,21 @@ public final class StackStudy {
     static List<JsonNode> captureEvents(Path agent, Path demo, Path output, String name, String fixture,
                                         String scenario, String extraAgentArguments)
             throws IOException, InterruptedException {
+        return captureEvents(agent, demo, output, name, fixture, List.of(scenario), "MONITOR", extraAgentArguments);
+    }
+
+    static List<JsonNode> captureEvents(Path agent, Path demo, Path output, String name, String fixture,
+                                        List<String> arguments, String mode, String extraAgentArguments)
+            throws IOException, InterruptedException {
         Path events = output.resolve(name + ".jsonl");
         Path console = output.resolve(name + ".log");
         String executable = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win")
                 ? "java.exe" : "java";
-        Process child = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", executable).toString(),
-                "-javaagent:" + agent + "=mode=MONITOR;verbose=false;events=" + events + extraAgentArguments,
-                "-cp", demo.toString(), fixture, scenario)
+        var command = new ArrayList<>(List.of(Path.of(System.getProperty("java.home"), "bin", executable).toString(),
+                "-javaagent:" + agent + "=mode=" + mode + ";verbose=false;events=" + events + extraAgentArguments,
+                "-cp", demo.toString(), fixture));
+        command.addAll(arguments);
+        Process child = new ProcessBuilder(command)
                 .redirectErrorStream(true).redirectOutput(console.toFile()).start();
         try {
             if (!child.waitFor(45, TimeUnit.SECONDS) || child.exitValue() != 0) {

@@ -80,17 +80,16 @@ public final class EventParser {
         Boolean enforced = bool(root, "enforced");
         List<String> rules = stringList(root.get("matchedRules"), 24);
 
-        List<String[]> frames = frames(root.get("callFrames"));
+        List<ParsedFrame> frames = frames(root.get("callFrames"));
         StringBuilder frameText = new StringBuilder();
         String entry = null;
         for (int i = frames.size() - 1; i >= 0; i--) {
-            String[] frame = frames.get(i);
-            boolean application = "true".equals(frame[2]);
-            if (application && entry == null) {
-                entry = shortClass(frame[0]) + "." + frame[1];
+            ParsedFrame frame = frames.get(i);
+            if (frame.applicationClass() && entry == null) {
+                entry = shortClass(frame.className()) + "." + frame.methodName();
             }
-            if (!platform(frame[0]) && frameText.length() < MAX_FRAME_TEXT) {
-                frameText.append(frame[0]).append('.').append(frame[1]).append(' ');
+            if (!platform(frame.className()) && frameText.length() < MAX_FRAME_TEXT) {
+                frameText.append(frame.className()).append('.').append(frame.methodName()).append(' ');
             }
         }
         return new EventSummary(
@@ -119,7 +118,14 @@ public final class EventParser {
                 EventSummary.outcomeOf(decision, policy, enforced),
                 frameText.toString().toLowerCase(java.util.Locale.ROOT),
                 offset,
-                length);
+                length,
+                checksum(rawLine, length));
+    }
+
+    static long checksum(byte[] line, int length) {
+        var checksum = new java.util.zip.CRC32C();
+        checksum.update(line, 0, length);
+        return checksum.getValue();
     }
 
     /** Builds the detail response for one event from its raw record. Whitelists fields; unknown fields are dropped. */
@@ -209,27 +215,25 @@ public final class EventParser {
      * outermost frame). The API returns them in execution order: entry first, sink last.
      */
     List<Map<String, Object>> executionOrderFrames(JsonNode root, EventSummary summary) {
-        List<String[]> raw = frames(root.get("callFrames"));
-        JsonNode nodes = root.get("callFrames");
+        List<ParsedFrame> raw = frames(root.get("callFrames"));
         String expectedSink = expectedSinkClass(summary.sinkType());
         boolean reflectionRuleMatched = summary.matchedRules().contains("REFLECTION_IN_CALL_PATH");
         List<Map<String, Object>> out = new ArrayList<>();
         int n = raw.size();
         for (int position = 0; position < n; position++) {
-            int arrayIndex = n - 1 - position;
-            String[] frame = raw.get(arrayIndex);
-            JsonNode node = nodes.get(arrayIndex);
-            boolean application = "true".equals(frame[2]);
-            String category = application ? "application" : platform(frame[0]) ? "platform" : "external";
+            ParsedFrame frame = raw.get(n - 1 - position);
+            JsonNode node = frame.source();
+            boolean application = frame.applicationClass();
+            String category = application ? "application" : platform(frame.className()) ? "platform" : "external";
             String role = position == 0 ? "entry" : "intermediate";
-            if (arrayIndex == 0 && expectedSink != null && expectedSink.equals(frame[0])) {
+            if (frame.arrayIndex() == 0 && expectedSink != null && expectedSink.equals(frame.className())) {
                 role = "sink";
             }
             Map<String, Object> json = new LinkedHashMap<>();
             json.put("position", position + 1);
-            json.put("arrayIndex", arrayIndex);
-            json.put("className", frame[0]);
-            json.put("methodName", frame[1]);
+            json.put("arrayIndex", frame.arrayIndex());
+            json.put("className", frame.className());
+            json.put("methodName", frame.methodName());
             json.put("fileName", blankToNull(clean(node.path("fileName").asText(""), 128)));
             int line = node.path("lineNumber").asInt(-1);
             json.put("lineNumber", line >= 0 ? Integer.valueOf(line) : null);
@@ -239,7 +243,7 @@ public final class EventParser {
             json.put("category", category);
             json.put("role", role);
             List<Map<String, String>> flags = new ArrayList<>();
-            if (isReflection(frame[0])) {
+            if (isReflection(frame.className())) {
                 // Same class-name test the agent uses (StackTraceCollector.isReflection).
                 flags.add(Map.of(
                         "code", "REFLECTION",
@@ -275,9 +279,11 @@ public final class EventParser {
                 || className.startsWith("com.sun.");
     }
 
-    /** Each entry is {className, methodName, applicationClass}. Frames without a class name are skipped. */
-    private static List<String[]> frames(JsonNode node) {
-        List<String[]> out = new ArrayList<>();
+    private record ParsedFrame(int arrayIndex, JsonNode source, String className, String methodName,
+                               boolean applicationClass) {}
+
+    private static List<ParsedFrame> frames(JsonNode node) {
+        List<ParsedFrame> out = new ArrayList<>();
         if (node == null || !node.isArray()) {
             return out;
         }
@@ -289,7 +295,8 @@ public final class EventParser {
                 continue;
             }
             String method = clean(frame.path("methodName").asText(""), 128);
-            out.add(new String[] {cls, method == null ? "" : method, String.valueOf(frame.path("applicationClass").asBoolean(false))});
+            out.add(new ParsedFrame(i, frame, cls, method == null ? "" : method,
+                    frame.path("applicationClass").asBoolean(false)));
         }
         return out;
     }

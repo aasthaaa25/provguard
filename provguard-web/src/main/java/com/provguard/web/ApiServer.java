@@ -23,8 +23,8 @@ import java.util.concurrent.TimeUnit;
 /**
  * Read-only JSON API plus the server-rendered dashboard.
  *
- * <p>Only GET and HEAD are accepted. Responses carry a restrictive Content-Security-Policy
- * and the Host header is checked for loopback deployments.
+ * <p>The API is read-only. Dashboard form submissions save display preferences or start
+ * the fixed teaching workloads in the opt-in local viva lab.
  */
 public final class ApiServer implements AutoCloseable {
     private static final String CSP = "default-src 'none'; script-src 'none'; connect-src 'self'; style-src 'self'; frame-src 'self'; base-uri 'none'; "
@@ -40,14 +40,20 @@ public final class ApiServer implements AutoCloseable {
     private final String version;
     private final ObjectMapper mapper = new ObjectMapper();
     private final Set<String> allowedHosts;
+    private final VivaLab viva;
     private HttpServer server;
 
     public ApiServer(WebConfig config, EventLogIndex index, SseHub hub, Instant startedAt, String version) {
+        this(config, index, hub, startedAt, version, null);
+    }
+
+    ApiServer(WebConfig config, EventLogIndex index, SseHub hub, Instant startedAt, String version, VivaLab viva) {
         this.config = config;
         this.index = index;
         this.hub = hub;
         this.startedAt = startedAt;
         this.version = version;
+        this.viva = viva;
         Set<String> hosts = new java.util.HashSet<>(Set.of("localhost", "127.0.0.1", "[::1]"));
         hosts.add(config.host().toLowerCase());
         this.allowedHosts = Set.copyOf(hosts);
@@ -73,11 +79,23 @@ public final class ApiServer implements AutoCloseable {
         if (server != null) {
             server.stop(0);
         }
+        if (viva != null) {
+            viva.close();
+        }
     }
 
     private void handle(HttpExchange exchange) throws IOException {
         try {
             String method = exchange.getRequestMethod();
+            String path = exchange.getRequestURI().getRawPath();
+            if (viva != null && path.equals("/viva/run") && "POST".equals(method)) {
+                startViva(exchange);
+                return;
+            }
+            if (path.equals("/settings") && "POST".equals(method)) {
+                saveSettings(exchange);
+                return;
+            }
             if (!"GET".equals(method) && !"HEAD".equals(method)) {
                 exchange.getResponseHeaders().set("Allow", "GET, HEAD");
                 error(exchange, 405, "method_not_allowed", "The dashboard API is read-only.");
@@ -87,16 +105,22 @@ public final class ApiServer implements AutoCloseable {
                 error(exchange, 403, "host_not_allowed", "Unexpected Host header.");
                 return;
             }
-            String path = exchange.getRequestURI().getRawPath();
+            var settings = WorkspaceSettings.read(exchange.getRequestHeaders().get("Cookie"));
             if (path.startsWith("/api/") || path.equals("/api")) {
                 api(exchange, stripTrailingSlash(path), parseQuery(exchange.getRequestURI().getRawQuery()));
             } else if (path.equals("/live")) {
-                sendPage(exchange, DashboardPage.live(index, parseQuery(exchange.getRequestURI().getRawQuery())),
+                sendPage(exchange, DashboardPage.live(index, parseQuery(exchange.getRequestURI().getRawQuery()), settings),
                         "text/html; charset=utf-8", true);
             } else if (path.equals("/dashboard.css")) {
                 sendPage(exchange, DashboardStyle.CSS, "text/css; charset=utf-8", false);
+            } else if (viva != null && path.equals("/viva/panel")) {
+                sendPage(exchange, VivaPage.panel(viva, settings), "text/html; charset=utf-8", true);
+            } else if (viva != null && path.startsWith("/viva/evidence/")) {
+                vivaEvidence(exchange, path.substring("/viva/evidence/".length()), settings);
+            } else if (viva != null && path.startsWith("/runs/") && path.length() > "/runs/".length()) {
+                runAnalysis(exchange, stripTrailingSlash(path).substring("/runs/".length()), settings);
             } else {
-                dashboard(exchange, path);
+                dashboard(exchange, path, settings);
             }
         } catch (Throwable failure) {
             System.err.println("ProvGuard web: request failed: " + failure.getClass().getSimpleName());
@@ -106,6 +130,109 @@ public final class ApiServer implements AutoCloseable {
                 exchange.close();
             }
         }
+    }
+
+    private void startViva(HttpExchange exchange) throws IOException {
+        String expected = "token=" + viva.token();
+        if (!sameOriginForm(exchange) || !exchange.getRemoteAddress().getAddress().isLoopbackAddress()
+                || !expected.equals(new String(exchange.getRequestBody().readNBytes(expected.length() + 1),
+                    StandardCharsets.US_ASCII))) {
+            error(exchange, 403, "lab_request_rejected", "Open the viva page to start the local lab.");
+            return;
+        }
+        viva.start();
+        Headers response = exchange.getResponseHeaders();
+        securityHeaders(response);
+        frameHeaders(response);
+        response.set("Location", "/viva/panel");
+        response.set("Cache-Control", "no-store");
+        exchange.sendResponseHeaders(303, -1);
+        exchange.close();
+    }
+
+    private boolean sameOriginForm(HttpExchange exchange) {
+        Headers headers = exchange.getRequestHeaders();
+        return hostAllowed(exchange) && headers.getFirst("Host") != null
+                && ("http://" + headers.getFirst("Host")).equals(headers.getFirst("Origin"))
+                && "application/x-www-form-urlencoded".equals(headers.getFirst("Content-Type"));
+    }
+
+    private void saveSettings(HttpExchange exchange) throws IOException {
+        if (!sameOriginForm(exchange)) {
+            error(exchange, 403, "settings_request_rejected", "Open Settings to save your display preferences.");
+            return;
+        }
+        byte[] body = exchange.getRequestBody().readNBytes(257);
+        if (body.length > 256) {
+            error(exchange, 413, "settings_too_large", "Display settings exceeded the form size limit.");
+            return;
+        }
+        WorkspaceSettings settings;
+        try {
+            settings = WorkspaceSettings.fromForm(parseQuery(new String(body, StandardCharsets.US_ASCII)));
+        } catch (IllegalArgumentException invalid) {
+            error(exchange, 400, "invalid_settings", invalid.getMessage());
+            return;
+        }
+        Headers response = exchange.getResponseHeaders();
+        securityHeaders(response);
+        response.set("Location", "/settings?saved=1");
+        response.set("Set-Cookie", settings.cookie());
+        response.set("Cache-Control", "no-store");
+        exchange.sendResponseHeaders(303, -1);
+        exchange.close();
+    }
+
+    private void runAnalysis(HttpExchange exchange, String path, WorkspaceSettings settings) throws IOException {
+        String[] parts = path.split("/", -1);
+        boolean download = parts.length == 2 && "evidence.zip".equals(parts[1]);
+        var run = parts.length == 1 || download ? viva.evidence(parts[0]) : null;
+        if (run == null) {
+            sendPage(exchange, DashboardPage.missing(settings), "text/html; charset=utf-8", false, 404);
+        } else if (download) {
+            sendRunArchive(exchange, run);
+        } else {
+            sendPage(exchange, DashboardPage.runAnalysis(run, settings), "text/html; charset=utf-8", false);
+        }
+    }
+
+    private void sendRunArchive(HttpExchange exchange, VivaLab.Evidence run) throws IOException {
+        byte[] archive;
+        try {
+            archive = RunArchive.build(run.directory());
+        } catch (IOException unavailable) {
+            error(exchange, 503, "archive_unavailable", "The evidence ZIP could not be prepared.");
+            return;
+        }
+        Headers headers = exchange.getResponseHeaders();
+        securityHeaders(headers);
+        headers.set("Content-Type", "application/zip");
+        headers.set("Content-Disposition", "attachment; filename=\"provguard-" + run.id() + ".zip\"");
+        headers.set("Cache-Control", "no-store");
+        if ("HEAD".equals(exchange.getRequestMethod())) {
+            headers.set("Content-Length", String.valueOf(archive.length));
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+            return;
+        }
+        exchange.sendResponseHeaders(200, archive.length);
+        try (OutputStream out = exchange.getResponseBody()) {
+            out.write(archive);
+        }
+    }
+
+    private void vivaEvidence(HttpExchange exchange, String path, WorkspaceSettings settings) throws IOException {
+        String[] parts = path.split("/", -1);
+        boolean record = parts.length == 3 && "record".equals(parts[2]);
+        VivaLab.Evidence evidence = parts.length == 2 || record ? viva.evidence(parts[0]) : null;
+        if (record && evidence != null) {
+            eventDetail(exchange, parts[1], evidence.index());
+            return;
+        }
+        EventSummary event = evidence != null && EventParser.SAFE_ID.matcher(parts[1]).matches()
+                ? evidence.index().find(parts[1]) : null;
+        sendPage(exchange, event == null ? DashboardPage.missing(settings) : DashboardPage.vivaEvidence(evidence, event, settings),
+                "text/html; charset=utf-8", false, event == null ? 404 : 200);
     }
 
     private boolean hostAllowed(HttpExchange exchange) {
@@ -137,7 +264,7 @@ public final class ApiServer implements AutoCloseable {
             case "/api/export" -> export(exchange, query);
             default -> {
                 if (path.startsWith("/api/events/")) {
-                    eventDetail(exchange, path.substring("/api/events/".length()));
+                    eventDetail(exchange, path.substring("/api/events/".length()), index);
                 } else {
                     error(exchange, 404, "not_found", "Unknown API path.");
                 }
@@ -187,7 +314,7 @@ public final class ApiServer implements AutoCloseable {
         json(exchange, 200, out);
     }
 
-    private void eventDetail(HttpExchange exchange, String id) throws IOException {
+    private void eventDetail(HttpExchange exchange, String id, EventLogIndex index) throws IOException {
         if (!EventParser.SAFE_ID.matcher(id).matches()) {
             error(exchange, 400, "bad_id", "Event ids contain letters, digits, and hyphens only.");
             return;
@@ -208,6 +335,12 @@ public final class ApiServer implements AutoCloseable {
     }
 
     private void stream(HttpExchange exchange, Map<String, String> query) throws IOException {
+        if ("HEAD".equals(exchange.getRequestMethod())) {
+            streamHeaders(exchange);
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+            return;
+        }
         SseHub.Client client = hub.register();
         if (client == null) {
             error(exchange, 503, "too_many_streams", "Too many live streams are open.");
@@ -218,11 +351,7 @@ public final class ApiServer implements AutoCloseable {
             if (lastId == null) {
                 lastId = parseLong(query.get("after"));
             }
-            Headers headers = exchange.getResponseHeaders();
-            securityHeaders(headers);
-            headers.set("Content-Type", "text/event-stream; charset=utf-8");
-            headers.set("Cache-Control", "no-store");
-            headers.set("X-Accel-Buffering", "no");
+            streamHeaders(exchange);
             exchange.sendResponseHeaders(200, 0);
             OutputStream out = exchange.getResponseBody();
             Map<String, Object> hello = new LinkedHashMap<>();
@@ -233,11 +362,17 @@ public final class ApiServer implements AutoCloseable {
             write(out, "hello", -1, hub.json(hello));
             long sent = -1;
             if (lastId != null && lastId >= 0) {
-                List<EventSummary> missed = new ArrayList<>(index.query(EventFilter.none(), 500, null, lastId).items());
-                Collections.reverse(missed);
-                for (EventSummary e : missed) {
-                    write(out, "security-event", e.seq(), hub.json(ApiJson.summary(e)));
-                    sent = Math.max(sent, e.seq());
+                var replay = index.query(EventFilter.none(), 500, null, lastId);
+                if (replay.truncated() || lastId > replay.latestSeq()
+                        || index.replayCursorExpired(lastId, replay.epoch())) {
+                    sent = replay.latestSeq();
+                    write(out, "reset", sent, hub.json(Map.of("epoch", replay.epoch(), "reason", "replay_gap")));
+                } else {
+                    sent = lastId;
+                    for (EventSummary e : replay.items().reversed()) {
+                        write(out, "security-event", e.seq(), hub.json(ApiJson.summary(e)));
+                        sent = e.seq();
+                    }
                 }
             }
             while (true) {
@@ -260,6 +395,14 @@ public final class ApiServer implements AutoCloseable {
             hub.unregister(client);
             exchange.close();
         }
+    }
+
+    private static void streamHeaders(HttpExchange exchange) {
+        Headers headers = exchange.getResponseHeaders();
+        securityHeaders(headers);
+        headers.set("Content-Type", "text/event-stream; charset=utf-8");
+        headers.set("Cache-Control", "no-store");
+        headers.set("X-Accel-Buffering", "no");
     }
 
     private static void write(OutputStream out, String event, long seq, String data) throws IOException {
@@ -319,7 +462,7 @@ public final class ApiServer implements AutoCloseable {
         }
     }
 
-    private void dashboard(HttpExchange exchange, String path) throws IOException {
+    private void dashboard(HttpExchange exchange, String path, WorkspaceSettings settings) throws IOException {
         String rawQuery = exchange.getRequestURI().getRawQuery();
         var query = parseQuery(rawQuery);
         String suffix = rawQuery == null ? "" : "?" + rawQuery;
@@ -341,11 +484,12 @@ public final class ApiServer implements AutoCloseable {
             }
         }
         if (page == null) {
-            sendPage(exchange, DashboardPage.missing(), "text/html; charset=utf-8", false, 404);
+            sendPage(exchange, DashboardPage.missing(settings), "text/html; charset=utf-8", false, 404);
         } else if (!path.equals(canonical)) {
             redirect(exchange, canonical + suffix);
         } else {
-            sendPage(exchange, DashboardPage.render(page, config, index, query, event), "text/html; charset=utf-8", false);
+            sendPage(exchange, DashboardPage.render(page, config, index, query, event, viva, settings),
+                    "text/html; charset=utf-8", false);
         }
     }
 
@@ -365,8 +509,10 @@ public final class ApiServer implements AutoCloseable {
         Headers headers = exchange.getResponseHeaders();
         securityHeaders(headers);
         if (embedded) {
-            headers.set("Content-Security-Policy", CSP.replace("frame-ancestors 'none'", "frame-ancestors 'self'"));
-            headers.set("X-Frame-Options", "SAMEORIGIN");
+            frameHeaders(headers);
+        }
+        if ("/settings".equals(exchange.getRequestURI().getRawPath())) {
+            headers.set("Referrer-Policy", "same-origin");
         }
         headers.set("Content-Type", contentType);
         headers.set("Cache-Control", "no-store");
@@ -413,6 +559,12 @@ public final class ApiServer implements AutoCloseable {
         headers.set("Referrer-Policy", "no-referrer");
         headers.set("Cross-Origin-Resource-Policy", "same-origin");
         headers.set("X-Frame-Options", "DENY");
+    }
+
+    private static void frameHeaders(Headers headers) {
+        headers.set("Content-Security-Policy", CSP.replace("frame-ancestors 'none'", "frame-ancestors 'self'"));
+        headers.set("X-Frame-Options", "SAMEORIGIN");
+        headers.set("Referrer-Policy", "same-origin");
     }
 
     static Map<String, String> parseQuery(String raw) {

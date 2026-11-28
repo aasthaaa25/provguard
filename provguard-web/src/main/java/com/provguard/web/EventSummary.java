@@ -32,7 +32,8 @@ public record EventSummary(
         String outcome,
         String frameText,
         long offset,
-        int length) {
+        int length,
+        long lineChecksum) {
 
     public static final String OUTCOME_BLOCKED = "blocked";
     public static final String OUTCOME_POLICY_BLOCK_NOT_ENFORCED = "policy_block_not_enforced";

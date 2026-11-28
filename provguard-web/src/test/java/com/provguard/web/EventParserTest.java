@@ -64,6 +64,27 @@ class EventParserTest {
     }
 
     @Test
+    void skippedFramesKeepMetadataAndOriginalIndicesAligned() throws Exception {
+        var event = mapper.readTree(Samples.allowed());
+        var frames = (com.fasterxml.jackson.databind.node.ArrayNode) event.get("callFrames");
+        var outer = (com.fasterxml.jackson.databind.node.ObjectNode) frames.get(3);
+        outer.put("fileName", "App.java").put("lineNumber", 301)
+                .put("moduleName", "demo.module").put("classLoaderName", "demo-loader");
+        frames.insert(1, mapper.createObjectNode().put("fileName", "Ignored.java"));
+
+        var path = mapper.valueToTree(detail(event.toString())).path("path").path("frames");
+        assertEquals(4, path.size());
+        var entry = path.get(0);
+        assertEquals("demo.App", entry.path("className").asText());
+        assertEquals("App.java", entry.path("fileName").asText());
+        assertEquals(301, entry.path("lineNumber").asInt());
+        assertEquals("demo.module", entry.path("moduleName").asText());
+        assertEquals("demo-loader", entry.path("classLoaderName").asText());
+        assertEquals(4, entry.path("arrayIndex").asInt());
+        assertEquals("sink", path.get(3).path("role").asText());
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void onlyReflectionFramesCarryAFlag() throws Exception {
         Map<String, Object> d = detail(Samples.allowed());

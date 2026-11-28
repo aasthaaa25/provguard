@@ -7,13 +7,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-/** Starts the read-only dashboard bridge. It does not start, stop, or configure the agent. */
+/** Starts the dashboard bridge and optionally enables the local viva lab. */
 public final class WebMain {
     private WebMain() {
     }
@@ -26,8 +27,12 @@ public final class WebMain {
             }
         }
         WebConfig config;
+        boolean liveViva = Arrays.asList(args).contains("--viva");
         try {
-            config = WebConfig.parse(args);
+            config = WebConfig.parse(Arrays.stream(args).filter(arg -> !arg.equals("--viva")).toArray(String[]::new));
+            if (liveViva && (config.allowRemote() || config.demo())) {
+                throw new IllegalArgumentException("--viva requires a local dashboard without --demo or --allow-remote.");
+            }
         } catch (IllegalArgumentException invalid) {
             System.err.println("ProvGuard web: " + invalid.getMessage());
             System.err.println();
@@ -35,6 +40,7 @@ public final class WebMain {
             System.exit(2);
             return;
         }
+        VivaLab viva = liveViva ? VivaLab.open() : null;
 
         Path eventsFile = config.eventsFile();
         ScheduledExecutorService demoWriter = null;
@@ -52,7 +58,7 @@ public final class WebMain {
         index.start();
 
         String version = version();
-        ApiServer server = new ApiServer(config, index, hub, Instant.now(), version);
+        ApiServer server = new ApiServer(config, index, hub, Instant.now(), version, viva);
         try {
             server.start();
         } catch (BindException busy) {
@@ -71,7 +77,10 @@ public final class WebMain {
             System.out.println("  Source    : " + eventsFile.toAbsolutePath() + (Files.isRegularFile(eventsFile) ? "" : " (not found yet)"));
         }
         System.out.println("  Access    : read-only" + (config.allowRemote() ? ", remote access enabled" : ", local only"));
-        System.out.println("  The dashboard never changes the agent. Press Ctrl+C to stop.");
+        if (liveViva) {
+            System.out.println("  Viva lab  : " + url + "viva");
+        }
+        System.out.println("  Press Ctrl+C to stop.");
 
         ScheduledExecutorService writer = demoWriter;
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
